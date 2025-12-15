@@ -13,13 +13,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 
-def escolher_arquivos_via_gui():
 
+def escolher_arquivos_via_gui():
     root = tk.Tk()
     root.title("Selecionar arquivos para correção")
     # Centralizar janela
-    largura = 600
-    altura = 180
+    largura = 700
+    altura = 300
     root.update_idletasks()
     largura_tela = root.winfo_screenwidth()
     altura_tela = root.winfo_screenheight()
@@ -28,7 +28,7 @@ def escolher_arquivos_via_gui():
     root.geometry(f"{largura}x{altura}+{x}+{y}")
 
     caminho_enunciado = tk.StringVar(master=root)
-    caminho_codigo = tk.StringVar(master=root)
+    caminhos_codigos = []  # lista de arquivos java
     selecionado = {'ok': False}
 
     def selecionar_enunciado():
@@ -36,44 +36,66 @@ def escolher_arquivos_via_gui():
         if caminho:
             caminho_enunciado.set(caminho)
 
-    def selecionar_codigo():
-        caminho = filedialog.askopenfilename(title="Selecione o arquivo de CÓDIGO DO ALUNO", filetypes=[("Java Files", "*.java"), ("All Files", "*.*")])
-        if caminho:
-            caminho_codigo.set(caminho)
+    def adicionar_codigo():
+        arquivos = filedialog.askopenfilenames(title="Adicionar arquivos de CÓDIGO DO ALUNO", filetypes=[("Java Files", "*.java"), ("All Files", "*.*")])
+        for arquivo in arquivos:
+            if arquivo not in caminhos_codigos:
+                caminhos_codigos.append(arquivo)
+        atualizar_codigos_entry()
+
+    def remover_codigo():
+        selecionados = listbox_codigos.curselection()
+        for idx in reversed(selecionados):
+            del caminhos_codigos[idx]
+        atualizar_codigos_entry()
 
     def executar():
-        if not caminho_enunciado.get() or not caminho_codigo.get():
-            messagebox.showerror("Erro", "Selecione ambos os arquivos antes de continuar.")
+        if not caminho_enunciado.get() or not caminhos_codigos:
+            messagebox.showerror("Erro", "Selecione o enunciado e pelo menos um arquivo de código.")
             return
         selecionado['ok'] = True
         root.destroy()
 
     tk.Label(root, text="Enunciado do Exercício (.txt):").grid(row=0, column=0, padx=10, pady=10, sticky='e')
-    entry_enunciado = tk.Entry(root, textvariable=caminho_enunciado, width=50)
+    enunciado_var = tk.StringVar(master=root)
+    entry_enunciado = tk.Entry(root, textvariable=enunciado_var, width=50, state='readonly')
     entry_enunciado.grid(row=0, column=1, padx=5)
-    btn_enunciado = tk.Button(root, text="Procurar...", command=selecionar_enunciado)
+    def atualizar_enunciado_entry():
+        if caminho_enunciado.get():
+            enunciado_var.set(os.path.basename(caminho_enunciado.get()))
+        else:   
+            enunciado_var.set("")
+    btn_enunciado = tk.Button(root, text="Procurar...", command=lambda: [selecionar_enunciado(), atualizar_enunciado_entry()])
     btn_enunciado.grid(row=0, column=2, padx=5)
+    atualizar_enunciado_entry()
 
-    tk.Label(root, text="Código do Aluno (.java):").grid(row=1, column=0, padx=10, pady=10, sticky='e')
-    entry_codigo = tk.Entry(root, textvariable=caminho_codigo, width=50)
-    entry_codigo.grid(row=1, column=1, padx=5)
-    btn_codigo = tk.Button(root, text="Procurar...", command=selecionar_codigo)
-    btn_codigo.grid(row=1, column=2, padx=5)
+    tk.Label(root, text="Códigos do Aluno (.java):").grid(row=1, column=0, padx=10, pady=10, sticky='e')
+    listbox_codigos = tk.Listbox(root, selectmode=tk.MULTIPLE, width=50, height=6)
+    listbox_codigos.grid(row=1, column=1, padx=5, rowspan=2, sticky='n')
+    def atualizar_codigos_entry():
+        listbox_codigos.delete(0, tk.END)
+        for f in caminhos_codigos:
+            listbox_codigos.insert(tk.END, os.path.basename(f))
+    btn_add_codigos = tk.Button(root, text="Adicionar...", command=adicionar_codigo, width=18)
+    btn_add_codigos.grid(row=1, column=2, padx=5, pady=2, sticky='n')
+    btn_remover_codigos = tk.Button(root, text="Remover Selecionado(s)", command=remover_codigo, width=18)
+    btn_remover_codigos.grid(row=2, column=2, padx=5, pady=2, sticky='n')
+    atualizar_codigos_entry()
 
     btn_executar = tk.Button(root, text="Executar", command=executar, width=20, bg='#4CAF50', fg='white')
-    btn_executar.grid(row=3, column=0, columnspan=3, pady=20)
+    btn_executar.grid(row=4, column=0, columnspan=3, pady=20)
 
     root.mainloop()
 
     if not selecionado['ok']:
         print("Execução cancelada pelo usuário.")
         exit()
-    return caminho_enunciado.get(), caminho_codigo.get()
+    return caminho_enunciado.get(), list(caminhos_codigos)
 
 # Seleciona os arquivos ao iniciar o script
-ENUNCIADO_FILE_PATH, CODIGO_FILE_PATH = escolher_arquivos_via_gui()
+ENUNCIADO_FILE_PATH, CODIGOS_JAVA_PATHS = escolher_arquivos_via_gui()
 print(f"Enunciado selecionado: {ENUNCIADO_FILE_PATH}")
-print(f"Código selecionado: {CODIGO_FILE_PATH}")
+print(f"Arquivos de código selecionados: {CODIGOS_JAVA_PATHS}")
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -171,6 +193,16 @@ def correction_node(state: CorrectionState) -> dict:
     feedback = generate_content_with_retry(prompt, SYSTEM_INSTRUCTION_CORRECAO)
     print("--- LLM RESPONDEU. RETORNANDO AO GRAFO. ---")
     return {"feedback_bruto": feedback}
+def read_and_concat_java_files(file_paths):
+    """Lê múltiplos arquivos Java e concatena com delimitadores para o LLM."""
+    combined = ""
+    for path in file_paths:
+        nome = os.path.basename(path)
+        conteudo = read_file_content(path)
+        combined += f"// --- ARQUIVO INÍCIO: {nome} ---\n"
+        combined += conteudo.strip() + "\n"
+        combined += f"// --- ARQUIVO FIM: {nome} ---\n\n"
+    return combined
 
 # --- 5. EXECUÇÃO DO GRAFO ---
 if __name__ == "__main__":
@@ -180,10 +212,10 @@ if __name__ == "__main__":
     # 5.1. Leitura dos Arquivos
     print(f"\n[PASSO 3] Lendo enunciado do arquivo: {ENUNCIADO_FILE_PATH}")
     enunciado_content = read_file_content(ENUNCIADO_FILE_PATH)
-    print(f"[PASSO 3] Lendo código do aluno do arquivo: {CODIGO_FILE_PATH}")
-    codigo_content = read_file_content(CODIGO_FILE_PATH)
+    print(f"[PASSO 3] Lendo arquivos de código do aluno: {CODIGOS_JAVA_PATHS}")
+    codigo_content = read_and_concat_java_files(CODIGOS_JAVA_PATHS)
     print("\n--- Conteúdo do Código Lido (Amostra) ---")
-    print(codigo_content.strip()[:100] + '...')
+    print(codigo_content.strip()[:300] + '...')
     print("-" * 40)
     # 5.2. Inicialização e Compilação do Grafo
     workflow = StateGraph(CorrectionState)

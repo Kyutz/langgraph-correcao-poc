@@ -1,12 +1,12 @@
 public class ContaBancaria {
-    public double saldo; // ERRO: Atributo público
+    public double saldo; 
     
     public void depositar(double valor) {
-        saldo = valor; // ERRO: Sobrescreve
+        saldo = valor; 
     }
     
     public void sacar(double valor) {
-        saldo -= valor; // ERRO: Não verifica saldo
+        saldo -= valor; 
     }
     
     public double getSaldo() {

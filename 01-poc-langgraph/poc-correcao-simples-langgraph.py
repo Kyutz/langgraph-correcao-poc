@@ -159,14 +159,14 @@ public class ContaBancaria {
     # Caso 2: Código com Erro (Encapsulamento e Lógica de Depósito/Saque)
     CODIGO_ERRO = """
 public class ContaBancaria {
-    public double saldo; // ERRO: Atributo público
+    public double saldo; 
     
     public void depositar(double valor) {
-        saldo = valor; // ERRO: Sobrescreve
+        saldo = valor; 
     }
     
     public void sacar(double valor) {
-        saldo -= valor; // ERRO: Não verifica saldo
+        saldo -= valor; 
     }
     
     public double getSaldo() {
@@ -178,10 +178,9 @@ public class ContaBancaria {
     # Caso 3: Código Parcialmente Certo (Falta Validação de Negativos no Depósito, mas Saque está OK)
     CODIGO_PARCIAL = """
 public class ContaBancaria {
-    private double saldo; // Certo: Privado
+    private double saldo; 
     
     public void depositar(double valor) { 
-        // Parcial: Não valida se valor > 0, mas adiciona corretamente
         saldo += valor; 
     }
     
