@@ -1,4 +1,4 @@
-# POC Correção Simples (Passo 2)
+# POC Correção Simples
 # Este script utiliza o Gemini para atuar como corretor de exercícios de POO em Java.
 
 import os
@@ -42,7 +42,7 @@ exercise_statement = (
     "4. Um método getSaldo() que retorna o saldo atual."
 )
 
-# Caso correto do aluno
+# Exemplos de código do aluno
 student_code_correct = '''
 public class ContaBancaria {
     private double saldo;
@@ -60,15 +60,14 @@ public class ContaBancaria {
 }
 '''
 
-# Caso com erro do aluno
 student_code_error = '''
 public class ContaBancaria {
-    public double saldo;
+    public double saldo; // ERRO: Atributo público
     public void depositar(double valor) {
-        saldo = valor;
+        saldo = valor; // ERRO: Sobrescreve
     }
     public void sacar(double valor) {
-        saldo -= valor;
+        saldo -= valor; // ERRO: Não verifica saldo
     }
     public double getSaldo() {
         return saldo;
@@ -76,7 +75,24 @@ public class ContaBancaria {
 }
 '''
 
-# System Prompt para forçar o Gemini a agir como corretor e responder em três partes
+student_code_partial = '''
+public class ContaBancaria {
+    private double saldo; // Certo: Privado
+    public void depositar(double valor) {
+        // Parcial: Não valida se valor > 0, mas adiciona corretamente
+        saldo += valor;
+    }
+    public void sacar(double valor) {
+        if (saldo >= valor) {
+            saldo -= valor;
+        }
+    }
+    public double getSaldo() {
+        return saldo;
+    }
+}
+'''
+
 system_prompt = (
     "Você é um Professor de Programação Orientada a Objetos (POO) da UFLA. "
     "Sua função é avaliar o código Java de um aluno, considerando o enunciado. "
@@ -108,3 +124,9 @@ print("\n--- Teste: Código com Erro ---")
 prompt_error = build_prompt(system_prompt, exercise_statement, student_code_error)
 feedback_error = generate_content_with_retry(prompt_error)
 print(feedback_error or "Erro ao obter resposta do Gemini.")
+
+# Testa o caso parcial
+print("\n--- Teste: Código Parcial ---")
+prompt_partial = build_prompt(system_prompt, exercise_statement, student_code_partial)
+feedback_partial = generate_content_with_retry(prompt_partial)
+print(feedback_partial or "Erro ao obter resposta do Gemini.")
