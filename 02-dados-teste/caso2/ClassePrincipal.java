@@ -3,7 +3,6 @@ public class ClassePrincipal {
         int a = 10;
         int b = 5;
 
-        // ERRO: Tentando chamar 'somar' como método estático, mas o método não é estático na ClasseAuxiliar.
         int resultadoSoma = ClasseAuxiliar.somar(a, b);
         int resultadoSubtracao = ClasseAuxiliar.subtrair(a, b);
 

@@ -1,18 +1,36 @@
-
 import os
 import time
 import random
+import json
 from dotenv import load_dotenv 
 from google import genai
 from google.genai.errors import APIError
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 
+# --- SCHEMA JSON ESTRITO ---
+JSON_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "avaliacao": {
+            "type": "STRING",
+            "description": "Status da correção: 'Certo', 'Errado' ou 'Parcialmente Certo'."
+        },
+        "justificativa": {
+            "type": "STRING",
+            "description": "Explicação detalhada dos erros/acertos pedagógicos."
+        },
+        "sugestao_correcao": {
+            "type": "STRING",
+            "description": "Código Java corrigido e orientações técnicas."
+        }
+    },
+    "required": ["avaliacao", "justificativa", "sugestao_correcao"]
+}
+
 # Interface gráfica para seleção dos arquivos (janela principal com campos e botões)
 import tkinter as tk
 from tkinter import filedialog, messagebox
-
-
 
 def escolher_arquivos_via_gui():
     root = tk.Tk()
@@ -118,13 +136,14 @@ MODEL_NAME = "gemini-2.5-flash"
 MAX_RETRIES = 5
 SYSTEM_INSTRUCTION_CORRECAO = (
     "Você é um Professor de Programação Orientada a Objetos (POO) da UFLA. "
-    "Sua função é avaliar o código Java de um aluno, considerando o enunciado. "
-    "Forneça um feedback construtivo e educativo, focado em princípios de POO (Encapsulamento, Herança, Lógica). "
-    "Sua resposta DEVE seguir EXATAMENTE esta estrutura, usando títulos em negrito:\n"
-    "1. **Avaliação:** Certo, Errado ou Parcialmente Certo.\n"
-    "2. **Justificativa:** Explique detalhadamente a lógica e a aplicação dos princípios de POO.\n"
-    "3. **Sugestão de Correção:** Apresente sugestões para aprimoramento ou correção do código, mesmo que ele esteja 'Certo'.\n"
-    "Responda integralmente em português."
+    "Avalie o código Java do aluno considerando o enunciado. Forneça feedback construtivo e educativo, focado em princípios de POO (Encapsulamento, Herança, Lógica).\n"
+    "Sua resposta DEVE ser um JSON válido, SEM TEXTO ANTES OU DEPOIS, e seguir EXATAMENTE este schema:\n"
+    '{\n'
+    '  "avaliacao": "Certo" | "Errado" | "Parcialmente Certo",\n'
+    '  "justificativa": string,\n'
+    '  "sugestao_correcao": string\n'
+    '}\n'
+    "Responda integralmente em português. Não adicione explicações fora do JSON."
 )
 
 # --- 2. DEFINIÇÃO DO ESTADO (STATE) DO LANGGRAPH ---
@@ -149,15 +168,29 @@ def read_file_content(file_path: str) -> str:
         exit()
 
 def generate_content_with_retry(prompt, system_instruction):
-    """Função robusta para chamar a API do Gemini com retries e backoff."""
+    """Função robusta para chamar a API do Gemini com retries e backoff, forçando resposta JSON ESTRITO."""
     for attempt in range(MAX_RETRIES):
         try:
             response = client.models.generate_content(
                 model=MODEL_NAME,
                 contents=prompt,
-                config={"system_instruction": system_instruction}
+                config={
+                    "system_instruction": system_instruction,
+                    "response_mime_type": "application/json",
+                    "response_schema": JSON_SCHEMA
+                }
             )
-            return response.text
+            # Força o parse do JSON para garantir estrutura
+            try:
+                data = json.loads(response.text)
+                # Garante que todas as chaves obrigatórias existem
+                for key in ["avaliacao", "justificativa", "sugestao_correcao"]:
+                    if key not in data:
+                        raise ValueError(f"Chave obrigatória ausente: {key}")
+                return data
+            except Exception as e:
+                print(f"Erro ao decodificar JSON da LLM: {e}\nResposta recebida:\n{response.text}")
+                raise e
         except APIError as e:
             if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
                 delay = 2**attempt + random.uniform(0, 1)
@@ -183,16 +216,20 @@ def format_correction_prompt(enunciado, codigo_aluno):
 def correction_node(state: CorrectionState) -> dict:
     """
     Nó de correção: Recebe o estado, executa a chamada à LLM
-    e atualiza o estado com o feedback bruto.
+    e atualiza o estado com o feedback bruto (JSON) e status.
     """
     enunciado_log = state['enunciado'].split('\n')[0][:70] + '...'
     print(f"\n--- INICIANDO CHAMADA À LLM: CORREÇÃO de '{enunciado_log}' ---")
     enunciado = state["enunciado"]
     codigo_aluno = state["codigo_aluno"]
     prompt = format_correction_prompt(enunciado, codigo_aluno)
-    feedback = generate_content_with_retry(prompt, SYSTEM_INSTRUCTION_CORRECAO)
+    feedback_json = generate_content_with_retry(prompt, SYSTEM_INSTRUCTION_CORRECAO)
     print("--- LLM RESPONDEU. RETORNANDO AO GRAFO. ---")
-    return {"feedback_bruto": feedback}
+    return {
+        "feedback_bruto": json.dumps(feedback_json, ensure_ascii=False, indent=2),
+        "avaliacao_status": feedback_json["avaliacao"]
+    }
+
 def read_and_concat_java_files(file_paths):
     """Lê múltiplos arquivos Java e concatena com delimitadores para o LLM."""
     combined = ""
@@ -235,8 +272,9 @@ if __name__ == "__main__":
     }
     final_state = app.invoke(initial_state)
     print("\n--- RESULTADO FINAL DO GRAFO ---")
-    print(f"Feedback da LLM para {TEST_CASE_NAME}:")
+    print(f"Feedback da LLM para {TEST_CASE_NAME} (JSON):")
     print(final_state["feedback_bruto"])
+    print(f"\nStatus de avaliação: {final_state['avaliacao_status']}")
     print("\n" + "=" * 80)
     print("FIM DA EXECUÇÃO DO LANGGRAPH: PASSO 3 CONCLUÍDO.")
     print("=" * 80)
