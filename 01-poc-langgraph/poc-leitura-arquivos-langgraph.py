@@ -35,8 +35,7 @@ from tkinter import filedialog, messagebox
 def escolher_arquivos_via_gui():
     root = tk.Tk()
     root.title("Selecionar arquivos para correção")
-    # Centralizar janela
-    largura = 700
+    largura = 750
     altura = 300
     root.update_idletasks()
     largura_tela = root.winfo_screenwidth()
@@ -46,13 +45,19 @@ def escolher_arquivos_via_gui():
     root.geometry(f"{largura}x{altura}+{x}+{y}")
 
     caminho_enunciado = tk.StringVar(master=root)
-    caminhos_codigos = []  # lista de arquivos java
+    caminho_gabarito = tk.StringVar(master=root)
+    caminhos_codigos = []
     selecionado = {'ok': False}
 
     def selecionar_enunciado():
         caminho = filedialog.askopenfilename(title="Selecione o arquivo de ENUNCIADO", filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
         if caminho:
             caminho_enunciado.set(caminho)
+
+    def selecionar_gabarito():
+        caminho = filedialog.askopenfilename(title="Selecione o arquivo de GABARITO (opcional)", filetypes=[("Java Files", "*.java"), ("All Files", "*.*")])
+        if caminho:
+            caminho_gabarito.set(caminho)
 
     def adicionar_codigo():
         arquivos = filedialog.askopenfilenames(title="Adicionar arquivos de CÓDIGO DO ALUNO", filetypes=[("Java Files", "*.java"), ("All Files", "*.*")])
@@ -74,6 +79,7 @@ def escolher_arquivos_via_gui():
         selecionado['ok'] = True
         root.destroy()
 
+    # Layout
     tk.Label(root, text="Enunciado do Exercício (.txt):").grid(row=0, column=0, padx=10, pady=10, sticky='e')
     enunciado_var = tk.StringVar(master=root)
     entry_enunciado = tk.Entry(root, textvariable=enunciado_var, width=50, state='readonly')
@@ -81,38 +87,53 @@ def escolher_arquivos_via_gui():
     def atualizar_enunciado_entry():
         if caminho_enunciado.get():
             enunciado_var.set(os.path.basename(caminho_enunciado.get()))
-        else:   
+        else:
             enunciado_var.set("")
     btn_enunciado = tk.Button(root, text="Procurar...", command=lambda: [selecionar_enunciado(), atualizar_enunciado_entry()])
     btn_enunciado.grid(row=0, column=2, padx=5)
     atualizar_enunciado_entry()
 
-    tk.Label(root, text="Códigos do Aluno (.java):").grid(row=1, column=0, padx=10, pady=10, sticky='e')
+    tk.Label(root, text="Gabarito do Professor (.java) - Opcional:").grid(row=1, column=0, padx=10, pady=10, sticky='e')
+    gabarito_var = tk.StringVar(master=root)
+    entry_gabarito = tk.Entry(root, textvariable=gabarito_var, width=50, state='readonly')
+    entry_gabarito.grid(row=1, column=1, padx=5)
+    def atualizar_gabarito_entry():
+        if caminho_gabarito.get():
+            gabarito_var.set(os.path.basename(caminho_gabarito.get()))
+        else:
+            gabarito_var.set("")
+    btn_gabarito = tk.Button(root, text="Procurar...", command=lambda: [selecionar_gabarito(), atualizar_gabarito_entry()])
+    btn_gabarito.grid(row=1, column=2, padx=5)
+    atualizar_gabarito_entry()
+
+    tk.Label(root, text="Códigos do Aluno (.java):").grid(row=2, column=0, padx=10, pady=10, sticky='e')
     listbox_codigos = tk.Listbox(root, selectmode=tk.MULTIPLE, width=50, height=6)
-    listbox_codigos.grid(row=1, column=1, padx=5, rowspan=2, sticky='n')
+    listbox_codigos.grid(row=2, column=1, padx=5, rowspan=2, sticky='n')
     def atualizar_codigos_entry():
         listbox_codigos.delete(0, tk.END)
         for f in caminhos_codigos:
             listbox_codigos.insert(tk.END, os.path.basename(f))
     btn_add_codigos = tk.Button(root, text="Adicionar...", command=adicionar_codigo, width=18)
-    btn_add_codigos.grid(row=1, column=2, padx=5, pady=2, sticky='n')
+    btn_add_codigos.grid(row=2, column=2, padx=5, pady=2, sticky='n')
     btn_remover_codigos = tk.Button(root, text="Remover Selecionado(s)", command=remover_codigo, width=18)
-    btn_remover_codigos.grid(row=2, column=2, padx=5, pady=2, sticky='n')
+    btn_remover_codigos.grid(row=3, column=2, padx=5, pady=2, sticky='n')
     atualizar_codigos_entry()
 
     btn_executar = tk.Button(root, text="Executar", command=executar, width=20, bg='#4CAF50', fg='white')
-    btn_executar.grid(row=4, column=0, columnspan=3, pady=20)
+    btn_executar.grid(row=5, column=0, columnspan=3, pady=20)
 
     root.mainloop()
 
     if not selecionado['ok']:
         print("Execução cancelada pelo usuário.")
         exit()
-    return caminho_enunciado.get(), list(caminhos_codigos)
+    return caminho_enunciado.get(), caminho_gabarito.get(), list(caminhos_codigos)
+
 
 # Seleciona os arquivos ao iniciar o script
-ENUNCIADO_FILE_PATH, CODIGOS_JAVA_PATHS = escolher_arquivos_via_gui()
+ENUNCIADO_FILE_PATH, GABARITO_FILE_PATH, CODIGOS_JAVA_PATHS = escolher_arquivos_via_gui()
 print(f"Enunciado selecionado: {ENUNCIADO_FILE_PATH}")
+print(f"Gabarito selecionado: {GABARITO_FILE_PATH if GABARITO_FILE_PATH else 'Nenhum'}")
 print(f"Arquivos de código selecionados: {CODIGOS_JAVA_PATHS}")
 
 # Carrega as variáveis de ambiente do arquivo .env
@@ -147,9 +168,11 @@ SYSTEM_INSTRUCTION_CORRECAO = (
 )
 
 # --- 2. DEFINIÇÃO DO ESTADO (STATE) DO LANGGRAPH ---
+from typing import Optional
 class CorrectionState(TypedDict):
     """Representa o estado do processo de correção."""
     enunciado: str
+    gabarito: Optional[str]
     codigo_aluno: str
     feedback_bruto: str  # Resultado da LLM (Passo 1/Nó Básico)
     avaliacao_status: str # Status extraído para tomada de decisão futura
@@ -222,7 +245,16 @@ def correction_node(state: CorrectionState) -> dict:
     print(f"\n--- INICIANDO CHAMADA À LLM: CORREÇÃO de '{enunciado_log}' ---")
     enunciado = state["enunciado"]
     codigo_aluno = state["codigo_aluno"]
-    prompt = format_correction_prompt(enunciado, codigo_aluno)
+    gabarito = state.get("gabarito")
+    if gabarito:
+        prompt = (
+            f"--- ENUNCIADO DO EXERCÍCIO ---\n{enunciado}\n"
+            f"--- GABARITO DO PROFESSOR ---\n{gabarito}\n"
+            f"--- CÓDIGO DO ALUNO ---\n```java\n{codigo_aluno}\n```\n"
+            "Avalie o código do aluno COMPARANDO DIRETAMENTE com o gabarito acima. Considere o gabarito como a única solução correta. Aponte diferenças, similaridades e se o código do aluno está igual, melhor ou pior que o gabarito. Siga a estrutura rígida definida no System Instruction."
+        )
+    else:
+        prompt = format_correction_prompt(enunciado, codigo_aluno)
     feedback_json = generate_content_with_retry(prompt, SYSTEM_INSTRUCTION_CORRECAO)
     print("--- LLM RESPONDEU. RETORNANDO AO GRAFO. ---")
     return {
@@ -249,6 +281,11 @@ if __name__ == "__main__":
     # 5.1. Leitura dos Arquivos
     print(f"\n[PASSO 3] Lendo enunciado do arquivo: {ENUNCIADO_FILE_PATH}")
     enunciado_content = read_file_content(ENUNCIADO_FILE_PATH)
+    if GABARITO_FILE_PATH:
+        print(f"[PASSO 3] Lendo gabarito do arquivo: {GABARITO_FILE_PATH}")
+        gabarito_content = read_file_content(GABARITO_FILE_PATH)
+    else:
+        gabarito_content = None
     print(f"[PASSO 3] Lendo arquivos de código do aluno: {CODIGOS_JAVA_PATHS}")
     codigo_content = read_and_concat_java_files(CODIGOS_JAVA_PATHS)
     print("\n--- Conteúdo do Código Lido (Amostra) ---")
@@ -266,6 +303,7 @@ if __name__ == "__main__":
     print("-" * 80)
     initial_state = {
         "enunciado": enunciado_content,
+        "gabarito": gabarito_content,
         "codigo_aluno": codigo_content,
         "feedback_bruto": "",
         "avaliacao_status": ""
