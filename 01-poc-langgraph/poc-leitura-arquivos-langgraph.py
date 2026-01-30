@@ -316,3 +316,27 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("FIM DA EXECUÇÃO DO LANGGRAPH: PASSO 3 CONCLUÍDO.")
     print("=" * 80)
+
+    # --- GERAÇÃO DO RELATÓRIO HTML ---
+    import webbrowser
+    from relatorio_html import gerar_relatorio_html
+    try:
+        feedback_json = json.loads(final_state["feedback_bruto"])
+    except Exception:
+        feedback_json = {"avaliacao": "Erro", "justificativa": "Erro ao decodificar JSON.", "sugestao_correcao": ""}
+    enunciado = enunciado_content.strip()
+    gabarito = gabarito_content.strip() if gabarito_content else ""
+    codigo_aluno = codigo_content.strip()
+    avaliacao = feedback_json.get("avaliacao", "")
+    justificativa = feedback_json.get("justificativa", "")
+    sugestao_correcao = feedback_json.get("sugestao_correcao", "")
+    relatorio_saida = gerar_relatorio_html(
+        enunciado=enunciado,
+        gabarito=gabarito,
+        codigo_aluno=codigo_aluno,
+        avaliacao=avaliacao,
+        justificativa=justificativa,
+        sugestao_correcao=sugestao_correcao
+    )
+    print(f"\nRelatório HTML gerado em: {relatorio_saida}")
+    webbrowser.open(f"file://{relatorio_saida}")
