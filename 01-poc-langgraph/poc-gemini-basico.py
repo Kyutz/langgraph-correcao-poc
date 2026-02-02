@@ -1,4 +1,6 @@
-# Carrega variáveis de ambiente do arquivo .env
+# Script inicial para integração básica com Gemini
+# (Renomeado de poc-langgraph-base.py)
+
 import os
 from dotenv import load_dotenv
 from google import genai

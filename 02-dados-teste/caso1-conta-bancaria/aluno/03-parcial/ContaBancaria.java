@@ -13,4 +13,5 @@ public class ContaBancaria {
         }
     }
 
+    // Não tem getSaldo()
 }

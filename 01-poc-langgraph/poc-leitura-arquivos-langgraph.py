@@ -20,121 +20,130 @@ JSON_SCHEMA = {
             "type": "STRING",
             "description": "Explicação detalhada dos erros/acertos pedagógicos."
         },
+        "dica_correcao": {
+            "type": "STRING",
+            "description": "Dicas e orientações para o aluno corrigir o código, sem incluir o código em si."
+        },
         "sugestao_correcao": {
             "type": "STRING",
-            "description": "Código Java corrigido e orientações técnicas."
+            "description": "Apenas o código Java corrigido, sem comentários ou mensagens extras."
         }
     },
-    "required": ["avaliacao", "justificativa", "sugestao_correcao"]
+    "required": ["avaliacao", "justificativa", "dica_correcao", "sugestao_correcao"]
 }
 
-# Interface gráfica para seleção dos arquivos (janela principal com campos e botões)
+
+# --- COMPONENTES DA INTERFACE (POO) ---
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-def escolher_arquivos_via_gui():
-    root = tk.Tk()
-    root.title("Selecionar arquivos para correção")
-    largura = 750
-    altura = 300
-    root.update_idletasks()
-    largura_tela = root.winfo_screenwidth()
-    altura_tela = root.winfo_screenheight()
-    x = (largura_tela // 2) - (largura // 2)
-    y = (altura_tela // 2) - (altura // 2)
-    root.geometry(f"{largura}x{altura}+{x}+{y}")
+class CardSelecao(tk.Frame):
+    def __init__(self, master, titulo, subtitulo, comando_selecao, **kwargs):
+        super().__init__(master, bg="#ffffff", bd=0, highlightbackground="#e2e8f0", highlightthickness=1, **kwargs)
+        self.lbl_titulo = tk.Label(self, text=titulo, font=("Segoe UI", 10, "bold"), fg="#1e293b", bg="#ffffff")
+        self.lbl_titulo.pack(anchor="w", padx=15, pady=(12, 0))
+        self.lbl_sub = tk.Label(self, text=subtitulo, font=("Segoe UI", 8), fg="#64748b", bg="#ffffff")
+        self.lbl_sub.pack(anchor="w", padx=15)
+        self.bottom_frame = tk.Frame(self, bg="#ffffff")
+        self.bottom_frame.pack(fill="x", padx=15, pady=(10, 12))
+        self.btn = tk.Button(
+            self.bottom_frame, text="Selecionar", command=comando_selecao,
+            font=("Segoe UI", 9, "bold"), bg="#f1f5f9", fg="#1e293b",
+            relief="flat", cursor="hand2", padx=15, pady=5,
+            activebackground="#e2e8f0"
+        )
+        self.btn.pack(side="left")
+        self.lbl_status = tk.Label(self.bottom_frame, text="Nenhum selecionado", font=("Consolas", 9), fg="#3b82f6", bg="#ffffff")
+        self.lbl_status.pack(side="left", padx=15)
+        self.btn.bind("<Enter>", lambda e: self.btn.config(bg="#e2e8f0"))
+        self.btn.bind("<Leave>", lambda e: self.btn.config(bg="#f1f5f9"))
+    def atualizar_status(self, texto):
+        self.lbl_status.config(text=texto)
 
-    caminho_enunciado = tk.StringVar(master=root)
-    caminho_gabarito = tk.StringVar(master=root)
-    caminhos_codigos = []
-    selecionado = {'ok': False}
+class InterfaceCorretor:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Corretor de Projetos POO")
+        self.root.configure(bg="#f8fafc")
+        largura, altura = 640, 580
+        self.root.update_idletasks()
+        largura_tela = self.root.winfo_screenwidth()
+        altura_tela = self.root.winfo_screenheight()
+        x = (largura_tela // 2) - (largura // 2)
+        y = (altura_tela // 2) - (altura // 2)
+        self.root.geometry(f"{largura}x{altura}+{x}+{y}")
+        self.root.resizable(False, False)
+        self.caminho_enunciado = ""
+        self.caminhos_gabarito = []
+        self.caminhos_aluno = []
+        self.confirmado = False
+        self._build_ui()
+    def _build_ui(self):
+        header = tk.Frame(self.root, bg="#f8fafc", pady=20)
+        header.pack(fill="x")
+        tk.Label(header, text="Corretor de Projetos POO", font=("Segoe UI", 16, "bold"), fg="#0f172a", bg="#f8fafc").pack()
+        self.main_container = tk.Frame(self.root, bg="#f8fafc", padx=30)
+        self.main_container.pack(fill="both", expand=True)
+        self.card_enunc = CardSelecao(self.main_container, "1. Enunciado", "Ficheiro .txt com as instruções", self.sel_enunciado)
+        self.card_enunc.pack(fill="x", pady=8)
+        self.card_gaba = CardSelecao(self.main_container, "2. Gabarito", "Pasta com ficheiros .java (Opcional)", self.sel_gabarito)
+        self.card_gaba.pack(fill="x", pady=8)
+        self.card_aluno = CardSelecao(self.main_container, "3. Código do Aluno", "Pasta com o projeto .java do aluno", self.sel_aluno)
+        self.card_aluno.pack(fill="x", pady=8)
+        footer = tk.Frame(self.root, bg="#f8fafc", pady=30)
+        footer.pack(fill="x")
+        self.btn_exec = tk.Button(
+            footer, text="EXECUTAR ANÁLISE", command=self.executar,
+            font=("Segoe UI", 11, "bold"), bg="#10b981", fg="#ffffff",
+            relief="flat", cursor="hand2", padx=50, pady=12,
+            activebackground="#059669"
+        )
+        self.btn_exec.pack()
+    def sel_enunciado(self):
+        # Não define initialdir, sempre abre no diretório padrão do sistema
+        p = filedialog.askopenfilename(title="Selecionar Enunciado", filetypes=[("Texto", "*.txt")])
+        if p:
+            self.caminho_enunciado = p
+            self.card_enunc.atualizar_status(os.path.basename(p))
 
-    def selecionar_enunciado():
-        caminho = filedialog.askopenfilename(title="Selecione o arquivo de ENUNCIADO", filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
-        if caminho:
-            caminho_enunciado.set(caminho)
+    def sel_gabarito(self):
+        initialdir = None
+        if self.caminho_enunciado:
+            initialdir = os.path.dirname(os.path.dirname(self.caminho_enunciado))
+        pasta = filedialog.askdirectory(title="Selecionar Pasta do Gabarito", initialdir=initialdir)
+        if pasta:
+            self.caminhos_gabarito = [os.path.join(pasta, f) for f in os.listdir(pasta) if f.endswith('.java')]
+            self.card_gaba.atualizar_status(f"{os.path.basename(pasta)} ({len(self.caminhos_gabarito)} arq.)")
 
-    def selecionar_gabarito():
-        caminho = filedialog.askopenfilename(title="Selecione o arquivo de GABARITO (opcional)", filetypes=[("Java Files", "*.java"), ("All Files", "*.*")])
-        if caminho:
-            caminho_gabarito.set(caminho)
-
-    def adicionar_codigo():
-        arquivos = filedialog.askopenfilenames(title="Adicionar arquivos de CÓDIGO DO ALUNO", filetypes=[("Java Files", "*.java"), ("All Files", "*.*")])
-        for arquivo in arquivos:
-            if arquivo not in caminhos_codigos:
-                caminhos_codigos.append(arquivo)
-        atualizar_codigos_entry()
-
-    def remover_codigo():
-        selecionados = listbox_codigos.curselection()
-        for idx in reversed(selecionados):
-            del caminhos_codigos[idx]
-        atualizar_codigos_entry()
-
-    def executar():
-        if not caminho_enunciado.get() or not caminhos_codigos:
-            messagebox.showerror("Erro", "Selecione o enunciado e pelo menos um arquivo de código.")
+    def sel_aluno(self):
+        initialdir = None
+        if self.caminhos_gabarito:
+            # Pega o diretório pai da pasta do gabarito
+            first_gabarito = self.caminhos_gabarito[0]
+            initialdir = os.path.dirname(os.path.dirname(first_gabarito))
+        pasta = filedialog.askdirectory(title="Selecionar Pasta do Aluno", initialdir=initialdir)
+        if pasta:
+            self.caminhos_aluno = [os.path.join(pasta, f) for f in os.listdir(pasta) if f.endswith('.java')]
+            self.card_aluno.atualizar_status(f"{os.path.basename(pasta)} ({len(self.caminhos_aluno)} arq.)")
+    def executar(self):
+        if not self.caminho_enunciado or not self.caminhos_aluno:
+            messagebox.showwarning("Aviso", "Por favor, selecione o Enunciado e a Pasta do Aluno.")
             return
-        selecionado['ok'] = True
-        root.destroy()
-
-    # Layout
-    tk.Label(root, text="Enunciado do Exercício (.txt):").grid(row=0, column=0, padx=10, pady=10, sticky='e')
-    enunciado_var = tk.StringVar(master=root)
-    entry_enunciado = tk.Entry(root, textvariable=enunciado_var, width=50, state='readonly')
-    entry_enunciado.grid(row=0, column=1, padx=5)
-    def atualizar_enunciado_entry():
-        if caminho_enunciado.get():
-            enunciado_var.set(os.path.basename(caminho_enunciado.get()))
-        else:
-            enunciado_var.set("")
-    btn_enunciado = tk.Button(root, text="Procurar...", command=lambda: [selecionar_enunciado(), atualizar_enunciado_entry()])
-    btn_enunciado.grid(row=0, column=2, padx=5)
-    atualizar_enunciado_entry()
-
-    tk.Label(root, text="Gabarito do Professor (.java) - Opcional:").grid(row=1, column=0, padx=10, pady=10, sticky='e')
-    gabarito_var = tk.StringVar(master=root)
-    entry_gabarito = tk.Entry(root, textvariable=gabarito_var, width=50, state='readonly')
-    entry_gabarito.grid(row=1, column=1, padx=5)
-    def atualizar_gabarito_entry():
-        if caminho_gabarito.get():
-            gabarito_var.set(os.path.basename(caminho_gabarito.get()))
-        else:
-            gabarito_var.set("")
-    btn_gabarito = tk.Button(root, text="Procurar...", command=lambda: [selecionar_gabarito(), atualizar_gabarito_entry()])
-    btn_gabarito.grid(row=1, column=2, padx=5)
-    atualizar_gabarito_entry()
-
-    tk.Label(root, text="Códigos do Aluno (.java):").grid(row=2, column=0, padx=10, pady=10, sticky='e')
-    listbox_codigos = tk.Listbox(root, selectmode=tk.MULTIPLE, width=50, height=6)
-    listbox_codigos.grid(row=2, column=1, padx=5, rowspan=2, sticky='n')
-    def atualizar_codigos_entry():
-        listbox_codigos.delete(0, tk.END)
-        for f in caminhos_codigos:
-            listbox_codigos.insert(tk.END, os.path.basename(f))
-    btn_add_codigos = tk.Button(root, text="Adicionar...", command=adicionar_codigo, width=18)
-    btn_add_codigos.grid(row=2, column=2, padx=5, pady=2, sticky='n')
-    btn_remover_codigos = tk.Button(root, text="Remover Selecionado(s)", command=remover_codigo, width=18)
-    btn_remover_codigos.grid(row=3, column=2, padx=5, pady=2, sticky='n')
-    atualizar_codigos_entry()
-
-    btn_executar = tk.Button(root, text="Executar", command=executar, width=20, bg='#4CAF50', fg='white')
-    btn_executar.grid(row=5, column=0, columnspan=3, pady=20)
-
-    root.mainloop()
-
-    if not selecionado['ok']:
-        print("Execução cancelada pelo usuário.")
-        exit()
-    return caminho_enunciado.get(), caminho_gabarito.get(), list(caminhos_codigos)
+        self.confirmado = True
+        self.root.destroy()
+    def get_data(self):
+        self.root.mainloop()
+        return self.caminho_enunciado, self.caminhos_gabarito, self.caminhos_aluno if self.confirmado else (None, None, None)
 
 
-# Seleciona os arquivos ao iniciar o script
-ENUNCIADO_FILE_PATH, GABARITO_FILE_PATH, CODIGOS_JAVA_PATHS = escolher_arquivos_via_gui()
-print(f"Enunciado selecionado: {ENUNCIADO_FILE_PATH}")
-print(f"Gabarito selecionado: {GABARITO_FILE_PATH if GABARITO_FILE_PATH else 'Nenhum'}")
-print(f"Arquivos de código selecionados: {CODIGOS_JAVA_PATHS}")
+
+# Seleciona os arquivos ao iniciar o script usando a nova interface orientada a objetos
+app = InterfaceCorretor()
+ENUNCIADO_FILE_PATH, GABARITO_FILE_PATHS, CODIGOS_JAVA_PATHS = app.get_data()
+if ENUNCIADO_FILE_PATH:
+    print(f"Enunciado selecionado: {ENUNCIADO_FILE_PATH}")
+    print(f"Gabarito(s) selecionado(s): {GABARITO_FILE_PATHS if GABARITO_FILE_PATHS else 'Nenhum'}")
+    print(f"Arquivos de código selecionados: {CODIGOS_JAVA_PATHS}")
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -162,9 +171,15 @@ SYSTEM_INSTRUCTION_CORRECAO = (
     '{\n'
     '  "avaliacao": "Certo" | "Errado" | "Parcialmente Certo",\n'
     '  "justificativa": string,\n'
+    '  "dica_correcao": string,\n'
     '  "sugestao_correcao": string\n'
     '}\n'
-    "Responda integralmente em português. Não adicione explicações fora do JSON."
+    "No campo 'sugestao_correcao', coloque o código Java corrigido e inclua comentários explicativos sempre que possível para ajudar o aluno a entender as correções e boas práticas. Não inclua mensagens de parabéns ou explicações fora do código. "
+    "Se a sugestão envolver mais de um arquivo, separe cada arquivo usando exatamente o padrão:\n"
+    "// --- ARQUIVO INÍCIO: NomeDoArquivo.java ---\n"
+    "(código do arquivo, com comentários explicativos se necessário)\n"
+    "// --- ARQUIVO FIM: NomeDoArquivo.java ---\n"
+    "No campo 'dica_correcao', coloque as orientações e dicas para o aluno corrigir o código, sem incluir o código em si. Use ```java apenas no prompt, não na resposta JSON. Responda integralmente em português. Não adicione explicações fora do JSON."
 )
 
 # --- 2. DEFINIÇÃO DO ESTADO (STATE) DO LANGGRAPH ---
@@ -281,9 +296,9 @@ if __name__ == "__main__":
     # 5.1. Leitura dos Arquivos
     print(f"\n[PASSO 3] Lendo enunciado do arquivo: {ENUNCIADO_FILE_PATH}")
     enunciado_content = read_file_content(ENUNCIADO_FILE_PATH)
-    if GABARITO_FILE_PATH:
-        print(f"[PASSO 3] Lendo gabarito do arquivo: {GABARITO_FILE_PATH}")
-        gabarito_content = read_file_content(GABARITO_FILE_PATH)
+    if GABARITO_FILE_PATHS:
+        print(f"[PASSO 3] Lendo gabarito dos arquivos: {GABARITO_FILE_PATHS}")
+        gabarito_content = read_and_concat_java_files(GABARITO_FILE_PATHS)
     else:
         gabarito_content = None
     print(f"[PASSO 3] Lendo arquivos de código do aluno: {CODIGOS_JAVA_PATHS}")
@@ -325,17 +340,23 @@ if __name__ == "__main__":
     except Exception:
         feedback_json = {"avaliacao": "Erro", "justificativa": "Erro ao decodificar JSON.", "sugestao_correcao": ""}
     enunciado = enunciado_content.strip()
-    gabarito = gabarito_content.strip() if gabarito_content else ""
-    codigo_aluno = codigo_content.strip()
+    # Pós-processamento para normalizar quebras de linha escapadas
+    def normalize_newlines(text):
+        return text.replace('\\n', '\n') if text else text
+
+    gabarito = normalize_newlines(gabarito_content.strip()) if gabarito_content else ""
+    codigo_aluno = normalize_newlines(codigo_content.strip())
     avaliacao = feedback_json.get("avaliacao", "")
     justificativa = feedback_json.get("justificativa", "")
-    sugestao_correcao = feedback_json.get("sugestao_correcao", "")
+    dica_correcao = feedback_json.get("dica_correcao", "")
+    sugestao_correcao = normalize_newlines(feedback_json.get("sugestao_correcao", ""))
     relatorio_saida = gerar_relatorio_html(
         enunciado=enunciado,
         gabarito=gabarito,
         codigo_aluno=codigo_aluno,
         avaliacao=avaliacao,
         justificativa=justificativa,
+        dica_correcao=dica_correcao,
         sugestao_correcao=sugestao_correcao
     )
     print(f"\nRelatório HTML gerado em: {relatorio_saida}")

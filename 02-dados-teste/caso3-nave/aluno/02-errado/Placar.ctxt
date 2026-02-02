@@ -1,0 +1,22 @@
+#BlueJ class context
+comment0.target=Placar
+comment0.text=\r\n\ Representa\ o\ placar\ do\ jogo\r\n\ \r\n\ @author\ J\u00FAlio\ C\u00E9sar\ Alves\r\n\ @version\ 2016-08-04\r\n
+comment1.params=
+comment1.target=Placar()
+comment1.text=\r\n\ Construtor\ do\ Placar\r\n
+comment2.params=
+comment2.target=void\ inicializar()
+comment2.text=\r\n\ Inicializa\ o\ placar.\ Limpa\ os\ valores\ das\ informacoes\ adicionais,\ mantendo\ as\ chaves\r\n
+comment3.params=
+comment3.target=int\ getPontos()
+comment3.text=\r\n\ Retorna\ o\ numero\ de\ pontos\ do\ placar\r\n
+comment4.params=
+comment4.target=void\ contarMorteInimigo()
+comment4.text=\r\n\ Contabiliza\ a\ morte\ de\ um\ inimigo\ no\ placar\r\n
+comment5.params=
+comment5.target=java.lang.String[]\ getInfoAdicionais()
+comment5.text=\r\n\ Retorna\ um\ vetor\ com\ as\ informacoes\ adicionais\ do\ placar\r\n
+comment6.params=chave\ valor
+comment6.target=void\ adicionarInformacao(java.lang.String,\ java.lang.String)
+comment6.text=\r\n\ Adiciona\ uma\ nova\ informacao\ ao\ placar.\ Se\ ja\ existe\ informa\u00E7\u00E3o\ com\ a\ mesma\ chave,\ apenas\ atualiza\ o\ valor\r\n\ \r\n\ @param\ chave\ identificador\ da\ informacao\ a\ ser\ adicionada/atualizada\r\n\ @param\ valor\ valor\ a\ ser\ exibido\ no\ placar\r\n
+numComments=7
