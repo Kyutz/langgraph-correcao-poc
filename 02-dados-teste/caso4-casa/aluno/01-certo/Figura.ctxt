@@ -1,0 +1,16 @@
+#BlueJ class context
+comment0.target=Figura
+comment0.text=\r\n\ Esta\ classe\ representa\ uma\ figura\ simples.\ Voc\u221A\u2122\ pode\ desenhar\ a\ figura\r\n\ usando\ o\ m\u221A\u00A9todo\ desenhar.\ Mas,\ como\ \u221A\u00A9\ uma\ figura\ eletr\u221A\u00A5nica,\ ela\ pode\r\n\ ser\ alterada.\ Voc\u221A\u2122\ pode\ deix\u221A\u00B0-la\ em\ preto\ e\ branco\ ou\ colorida\r\n\ (somente\ depois\ de\ desenhada,\ \u221A\u00A9\ claro).\r\n\r\n\ Esta\ classe\ foi\ criada\ como\ um\ exemplo\ de\ aulas\ em\ Java\ usando\ BlueJ.\r\n\ \r\n\ Traduzido\ por\ Julio\ C\u221A\u00A9sar\ Alves\ -\ 2023-08-25\r\n\ \r\n\ @author\ \ Michael\ K\u221A\u2202lling\ and\ David\ J.\ Barnes\r\n\ @version\ 2016.02.29\r\n
+comment1.params=
+comment1.target=Figura()
+comment1.text=\r\n\ Construtor\ para\ objetos\ da\ classe\ Figura\r\n
+comment2.params=
+comment2.target=void\ desenhar()
+comment2.text=\r\n\ Desenha\ esta\ figura.\r\n
+comment3.params=
+comment3.target=void\ definirPretoEBranco()
+comment3.text=\r\n\ Muda\ esta\ figura\ para\ preto\ e\ branco\r\n
+comment4.params=
+comment4.target=void\ definirColorida()
+comment4.text=\r\n\ Muda\ esta\ figura\ para\ colorida\r\n
+numComments=5

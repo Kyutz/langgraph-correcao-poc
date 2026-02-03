@@ -4,7 +4,7 @@ public class ClassePrincipal {
         int b = 5;
 
         ClasseAuxiliar aux = new ClasseAuxiliar();
-        // Soma errada
+        
         int resultadoSoma = aux.somar(a, b);
         int resultadoSubtracao = aux.subtrair(a, b);
 
@@ -15,10 +15,10 @@ public class ClassePrincipal {
 
 class ClasseAuxiliar {
     public int somar(int x, int y) {
-        return x - y; // Erro proposital
+        return x - y; 
     }
 
     public int subtrair(int x, int y) {
-        return x + y; // Erro proposital
+        return x + y; 
     }
 }

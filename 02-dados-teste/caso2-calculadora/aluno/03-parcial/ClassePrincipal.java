@@ -5,7 +5,7 @@ public class ClassePrincipal {
 
         ClasseAuxiliar aux = new ClasseAuxiliar();
         int resultadoSoma = aux.somar(a, b);
-        // Esqueceu de chamar subtrair
+        
         System.out.println("Resultado da Soma: " + resultadoSoma);
     }
 }
@@ -15,5 +15,5 @@ class ClasseAuxiliar {
         return x + y;
     }
 
-    // Esqueceu de implementar subtrair
+    
 }
