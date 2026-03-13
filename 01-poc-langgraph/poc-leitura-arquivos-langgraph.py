@@ -122,7 +122,7 @@ class InterfaceCorretor:
         tk.Label(header, text="Corretor de Projetos POO", font=("Segoe UI", 16, "bold"), fg="#0f172a", bg="#f8fafc").pack()
         self.main_container = tk.Frame(self.root, bg="#f8fafc", padx=30)
         self.main_container.pack(fill="both", expand=True)
-        self.card_enunc = CardSelecao(self.main_container, "1. Enunciado", "Ficheiro .txt com as instruções", self.sel_enunciado)
+        self.card_enunc = CardSelecao(self.main_container, "1. Enunciado", "Instruções (Markdown ou Texto)", self.sel_enunciado)
         self.card_enunc.pack(fill="x", pady=8)
         self.card_gaba = CardSelecao(self.main_container, "2. Gabarito", "Pasta com ficheiros .java (Opcional)", self.sel_gabarito)
         self.card_gaba.pack(fill="x", pady=8)
@@ -138,7 +138,7 @@ class InterfaceCorretor:
         )
         self.btn_exec.pack()
     def sel_enunciado(self):
-        p = filedialog.askopenfilename(title="Selecionar Enunciado", filetypes=[("Texto", "*.txt")])
+        p = filedialog.askopenfilename(title="Selecionar Enunciado", filetypes=[("Markdown/Text", ("*.md", "*.txt"))])
         if p:
             self.caminho_enunciado = p
             self.card_enunc.atualizar_status(os.path.basename(p))
