@@ -2,16 +2,22 @@ import os
 import time
 import random
 import json
+import re
 import zipfile
 import tempfile
-from tkinter.simpledialog import askstring
-from dotenv import load_dotenv 
-from google import genai
-from google.genai.errors import APIError
-from typing import TypedDict
-from langgraph.graph import StateGraph, END
+import webbrowser
+from typing import TypedDict, Optional
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from tkinter.simpledialog import askstring
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai.errors import APIError
+from langgraph.graph import StateGraph, END
+
+from relatorio_html import gerar_relatorio_html
 
 # --- Funções utilitárias ---
 def selecionar_pasta_ou_zip(pasta, prefixo_temp):
@@ -72,9 +78,6 @@ JSON_SCHEMA = {
 
 
 # --- COMPONENTES DA INTERFACE ---
-import tkinter as tk
-from tkinter import filedialog, messagebox
-
 class CardSelecao(tk.Frame):
     def __init__(self, master, titulo, subtitulo, comando_selecao, **kwargs):
         super().__init__(master, bg="#ffffff", bd=0, highlightbackground="#e2e8f0", highlightthickness=1, **kwargs)
@@ -210,26 +213,9 @@ except Exception as e:
 
 MODEL_NAME = "gemini-2.5-flash"
 MAX_RETRIES = 5
-SYSTEM_INSTRUCTION_CORRECAO = (
-    "Você é um Professor de Programação Orientada a Objetos (POO) da UFLA. "
-    "Avalie o código Java do aluno considerando o enunciado. Forneça feedback construtivo e educativo, focado em princípios de POO (Encapsulamento, Herança, Lógica).\n"
-    "Sua resposta DEVE ser um JSON válido, SEM TEXTO ANTES OU DEPOIS, e seguir EXATAMENTE este schema:\n"
-    '{\n'
-    '  "avaliacao": "Certo" | "Errado" | "Parcialmente Certo",\n'
-    '  "justificativa": string,\n'
-    '  "dica_correcao": string,\n'
-    '  "sugestao_correcao": string\n'
-    '}\n'
-    "No campo 'sugestao_correcao', coloque o código Java corrigido e inclua comentários explicativos sempre que possível para ajudar o aluno a entender as correções e boas práticas. Não inclua mensagens de parabéns ou explicações fora do código. "
-    "Se a sugestão envolver mais de um arquivo, separe cada arquivo usando exatamente o padrão:\n"
-    "// --- ARQUIVO INÍCIO: NomeDoArquivo.java ---\n"
-    "(código do arquivo, com comentários explicativos se necessário)\n"
-    "// --- ARQUIVO FIM: NomeDoArquivo.java ---\n"
-    "No campo 'dica_correcao', coloque as orientações e dicas para o aluno corrigir o código, sem incluir o código em si. Use ```java apenas no prompt, não na resposta JSON. Responda integralmente em português. Não adicione explicações fora do JSON."
-)
+
 
 # --- 2. DEFINIÇÃO DO ESTADO (STATE) DO LANGGRAPH ---
-from typing import Optional
 class CorrectionState(TypedDict):
     """Representa o estado do processo de correção."""
     enunciado: str
@@ -252,8 +238,51 @@ def read_file_content(file_path: str) -> str:
         print(f"Erro ao ler o arquivo {file_path}: {e}")
         exit()
 
+class PromptManager:
+    def __init__(self, prompts_dir=None):
+        base = os.path.dirname(__file__)
+        default = os.path.abspath(os.path.join(base, '..', '05-prompts'))
+        self.prompts_dir = prompts_dir or default
+
+    def _load(self, filename: str) -> str:
+        path = os.path.join(self.prompts_dir, filename)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception:
+            return ""
+
+    def system_instruction(self) -> str:
+        text = self._load('system_prompt.md')
+        if not text:
+            # fallback curto
+            return (
+                "Você é um Professor de Programação Orientada a Objetos (POO). "
+                "Avalie o código Java do aluno considerando o enunciado."
+            )
+        return text
+
+    def persona(self) -> str:
+        return self._load('persona.md')
+
+    def user_template(self) -> str:
+        # template neutro onde o código e o enunciado serão injetados
+        text = self._load('user_template.md')
+        if not text:
+            # Template por omissão — o código insere os blocos marcados
+            return (
+                "--- ENUNCIADO DO EXERCÍCIO ---\n{{ENUNCIADO}}\n"
+                "--- GABARITO DO PROFESSOR ---```java\n{{GABARITO}}\n```\n"
+                "--- CÓDIGO DO ALUNO ---\n```java\n{{CODIGO_ALUNO}}\n```\n"
+            )
+        return text
+
+    def fill_user_template(self, enunciado: str, gabarito: Optional[str], codigo_aluno: str) -> str:
+        template = self.user_template()
+        g = gabarito or ""
+        return template.replace("{{ENUNCIADO}}", enunciado).replace("{{GABARITO}}", g).replace("{{CODIGO_ALUNO}}", codigo_aluno)
+
 # --- Função para remover comentários de código Java ---
-import re
 def remove_java_comments(code: str) -> str:
     """Remove comentários de linha (//) e bloco (/* */) de código Java, e linhas vazias resultantes."""
     # Remove comentários de bloco
@@ -268,14 +297,15 @@ def generate_content_with_retry(prompt, system_instruction):
     """Função robusta para chamar a API do Gemini com retries e backoff, forçando resposta JSON ESTRITO."""
     for attempt in range(MAX_RETRIES):
         try:
+            config = {
+                "system_instruction": system_instruction,
+                "response_mime_type": "application/json",
+                "response_schema": JSON_SCHEMA
+            }
             response = client.models.generate_content(
                 model=MODEL_NAME,
                 contents=prompt,
-                config={
-                    "system_instruction": system_instruction,
-                    "response_mime_type": "application/json",
-                    "response_schema": JSON_SCHEMA
-                }
+                config=config
             )
             # Força o parse do JSON para garantir estrutura
             try:
@@ -320,16 +350,16 @@ def correction_node(state: CorrectionState) -> dict:
     enunciado = state["enunciado"]
     codigo_aluno = state["codigo_aluno"]
     gabarito = state.get("gabarito")
-    if gabarito:
-        prompt = (
-            f"--- ENUNCIADO DO EXERCÍCIO ---\n{enunciado}\n"
-            f"--- GABARITO DO PROFESSOR ---\n{gabarito}\n"
-            f"--- CÓDIGO DO ALUNO ---\n```java\n{codigo_aluno}\n```\n"
-            "Avalie o código do aluno COMPARANDO DIRETAMENTE com o gabarito acima. Considere o gabarito como a única solução correta. Aponte diferenças, similaridades e se o código do aluno está igual, melhor ou pior que o gabarito. Siga a estrutura rígida definida no System Instruction."
-        )
-    else:
-        prompt = format_correction_prompt(enunciado, codigo_aluno)
-    feedback_json = generate_content_with_retry(prompt, SYSTEM_INSTRUCTION_CORRECAO)
+    # Usa PromptManager para carregar system prompt, persona e template do utilizador.
+    pm = PromptManager()
+    # Carrega o system_instruction e concatena a persona (se existir) para garantir que o modelo recebe ambas.
+    system_instruction = pm.system_instruction()
+    persona_text = pm.persona()
+    if persona_text:
+        # Coloca a persona antes da instrução do sistema para dar identidade/contexto consistente ao modelo.
+        system_instruction = persona_text + "\n\n" + system_instruction
+    user_prompt = pm.fill_user_template(enunciado, gabarito, codigo_aluno)
+    feedback_json = generate_content_with_retry(user_prompt, system_instruction)
     print("--- LLM RESPONDEU. RETORNANDO AO GRAFO. ---")
     return {
         "feedback_bruto": json.dumps(feedback_json, ensure_ascii=False, indent=2),
@@ -393,8 +423,6 @@ if __name__ == "__main__":
     print("=" * 80)
 
     # --- GERAÇÃO DO RELATÓRIO HTML ---
-    import webbrowser
-    from relatorio_html import gerar_relatorio_html
     try:
         feedback_json = json.loads(final_state["feedback_bruto"])
     except Exception:
