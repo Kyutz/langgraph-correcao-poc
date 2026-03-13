@@ -2,11 +2,49 @@ import os
 import time
 import random
 import json
+import zipfile
+import tempfile
+from tkinter.simpledialog import askstring
 from dotenv import load_dotenv 
 from google import genai
 from google.genai.errors import APIError
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+# --- Funções utilitárias ---
+def selecionar_pasta_ou_zip(pasta, prefixo_temp):
+    """Se houver ZIP na pasta, extrai e retorna a subpasta extraída. Senão, retorna a própria pasta."""
+    arquivos_zip = [f for f in os.listdir(pasta) if f.lower().endswith('.zip')]
+    if arquivos_zip:
+        # Se houver mais de um zip, pede para escolher qual
+        if len(arquivos_zip) > 1:
+            zip_nome = askstring("ZIP encontrado", f"Foram encontrados vários ZIPs na pasta. Digite o nome do ZIP a ser extraído:\n{arquivos_zip}")
+            if not zip_nome or zip_nome not in arquivos_zip:
+                messagebox.showwarning("Aviso", "ZIP não selecionado corretamente.")
+                return None
+        else:
+            zip_nome = arquivos_zip[0]
+        zip_path = os.path.join(pasta, zip_nome)
+        temp_dir = tempfile.mkdtemp(prefix=prefixo_temp)
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
+        subdirs = [os.path.join(temp_dir, d) for d in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, d))]
+        if subdirs:
+            return subdirs[0]
+        else:
+            return temp_dir
+    return pasta
+
+def buscar_arquivos_java(pasta):
+    """Busca recursivamente arquivos .java em uma pasta."""
+    java_files = []
+    for root, _, files in os.walk(pasta):
+        for f in files:
+            if f.endswith('.java'):
+                java_files.append(os.path.join(root, f))
+    return java_files
 
 # --- SCHEMA JSON ESTRITO ---
 JSON_SCHEMA = {
@@ -33,7 +71,7 @@ JSON_SCHEMA = {
 }
 
 
-# --- COMPONENTES DA INTERFACE (POO) ---
+# --- COMPONENTES DA INTERFACE ---
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
@@ -100,7 +138,6 @@ class InterfaceCorretor:
         )
         self.btn_exec.pack()
     def sel_enunciado(self):
-        # Não define initialdir, sempre abre no diretório padrão do sistema
         p = filedialog.askopenfilename(title="Selecionar Enunciado", filetypes=[("Texto", "*.txt")])
         if p:
             self.caminho_enunciado = p
@@ -111,20 +148,29 @@ class InterfaceCorretor:
         if self.caminho_enunciado:
             initialdir = os.path.dirname(os.path.dirname(self.caminho_enunciado))
         pasta = filedialog.askdirectory(title="Selecionar Pasta do Gabarito", initialdir=initialdir)
-        if pasta:
-            self.caminhos_gabarito = [os.path.join(pasta, f) for f in os.listdir(pasta) if f.endswith('.java')]
-            self.card_gaba.atualizar_status(f"{os.path.basename(pasta)} ({len(self.caminhos_gabarito)} arq.)")
+        if not pasta:
+            return
+        pasta_final = selecionar_pasta_ou_zip(pasta, "gabarito_zip_")
+        if not pasta_final:
+            return
+        self.caminhos_gabarito = buscar_arquivos_java(pasta_final)
+        self.card_gaba.atualizar_status(f"{os.path.basename(pasta_final)} ({len(self.caminhos_gabarito)} arq.)")
 
     def sel_aluno(self):
         initialdir = None
         if self.caminhos_gabarito:
-            # Pega o diretório pai da pasta do gabarito
             first_gabarito = self.caminhos_gabarito[0]
             initialdir = os.path.dirname(os.path.dirname(first_gabarito))
+
         pasta = filedialog.askdirectory(title="Selecionar Pasta do Aluno", initialdir=initialdir)
-        if pasta:
-            self.caminhos_aluno = [os.path.join(pasta, f) for f in os.listdir(pasta) if f.endswith('.java')]
-            self.card_aluno.atualizar_status(f"{os.path.basename(pasta)} ({len(self.caminhos_aluno)} arq.)")
+        if not pasta:
+            return
+        pasta_final = selecionar_pasta_ou_zip(pasta, "aluno_zip_")
+        if not pasta_final:
+            return
+        java_files = buscar_arquivos_java(pasta_final)
+        self.caminhos_aluno = java_files
+        self.card_aluno.atualizar_status(f"{os.path.basename(pasta_final)} ({len(java_files)} arq.)")
     def executar(self):
         if not self.caminho_enunciado or not self.caminhos_aluno:
             messagebox.showwarning("Aviso", "Por favor, selecione o Enunciado e a Pasta do Aluno.")
@@ -193,6 +239,7 @@ class CorrectionState(TypedDict):
     avaliacao_status: str # Status extraído para tomada de decisão futura
 
 # --- 3. FUNÇÕES UTILITÁRIAS ---
+
 def read_file_content(file_path: str) -> str:
     """Função para ler o conteúdo de um arquivo de forma segura."""
     try:
@@ -204,6 +251,18 @@ def read_file_content(file_path: str) -> str:
     except Exception as e:
         print(f"Erro ao ler o arquivo {file_path}: {e}")
         exit()
+
+# --- Função para remover comentários de código Java ---
+import re
+def remove_java_comments(code: str) -> str:
+    """Remove comentários de linha (//) e bloco (/* */) de código Java, e linhas vazias resultantes."""
+    # Remove comentários de bloco
+    code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+    # Remove comentários de linha
+    code = re.sub(r'//.*', '', code)
+    # Remove linhas vazias
+    code = '\n'.join([linha for linha in code.splitlines() if linha.strip()])
+    return code
 
 def generate_content_with_retry(prompt, system_instruction):
     """Função robusta para chamar a API do Gemini com retries e backoff, forçando resposta JSON ESTRITO."""
@@ -278,13 +337,14 @@ def correction_node(state: CorrectionState) -> dict:
     }
 
 def read_and_concat_java_files(file_paths):
-    """Lê múltiplos arquivos Java e concatena com delimitadores para o LLM."""
+    """Lê múltiplos arquivos Java, remove comentários e concatena com delimitadores para o LLM."""
     combined = ""
     for path in file_paths:
         nome = os.path.basename(path)
         conteudo = read_file_content(path)
+        conteudo_sem_comentarios = remove_java_comments(conteudo)
         combined += f"// --- ARQUIVO INÍCIO: {nome} ---\n"
-        combined += conteudo.strip() + "\n"
+        combined += conteudo_sem_comentarios.strip() + "\n"
         combined += f"// --- ARQUIVO FIM: {nome} ---\n\n"
     return combined
 
