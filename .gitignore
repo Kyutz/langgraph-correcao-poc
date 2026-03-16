@@ -1,7 +1,6 @@
 
 .env
 .venv
-# Ignore only HTML reports inside 04-relatorios, keep the folder and README tracked
 04-relatorios/*.html
 !04-relatorios/README.md
 __pycache__/

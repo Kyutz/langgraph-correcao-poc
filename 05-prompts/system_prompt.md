@@ -23,3 +23,5 @@ Instrução adicional se houver gabarito:
 Avalie o código do aluno COMPARANDO DIRETAMENTE com o gabarito. Considere o gabarito como referência principal: aponte diferenças, similaridades e se o código do aluno está igual, melhor ou pior que o gabarito.
 
 Siga a estrutura rígida definida neste System Instruction e garanta que o JSON produzido obedeça exatamente ao schema acima.
+
+Se for fornecida uma lista `{{CONCEITOS_A_AVALIAR}}`, NÃO mencione, discuta ou considere de qualquer forma conceitos que NÃO estejam nessa lista. Evite referências comparativas ou explicativas que invoquem conceitos externos ao conjunto autorizado.

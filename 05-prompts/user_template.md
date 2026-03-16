@@ -6,6 +6,9 @@
 {{GABARITO}}
 ```
 
+— CONCEITOS A AVALIAR (opcional) —
+{{CONCEITOS_A_AVALIAR}}
+
 — CÓDIGO DO ALUNO —
 ```java
 {{CODIGO_ALUNO}}

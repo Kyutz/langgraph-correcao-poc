@@ -6,7 +6,7 @@ import re
 import zipfile
 import tempfile
 import webbrowser
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, List, Union
 
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -107,6 +107,7 @@ class InterfaceCorretor:
         self.root.title("Corretor de Projetos POO")
         self.root.configure(bg="#f8fafc")
         largura, altura = 640, 580
+        altura = 720
         self.root.update_idletasks()
         largura_tela = self.root.winfo_screenwidth()
         altura_tela = self.root.winfo_screenheight()
@@ -131,6 +132,8 @@ class InterfaceCorretor:
         self.card_gaba.pack(fill="x", pady=8)
         self.card_aluno = CardSelecao(self.main_container, "3. Código do Aluno", "Pasta com o projeto .java do aluno", self.sel_aluno)
         self.card_aluno.pack(fill="x", pady=8)
+        self.card_concepts = CardSelecao(self.main_container, "4. Conceitos a Avaliar", "Escolher quais conceitos incluir na avaliação (Opcional)", self.sel_conceitos)
+        self.card_concepts.pack(fill="x", pady=8)
         footer = tk.Frame(self.root, bg="#f8fafc", pady=30)
         footer.pack(fill="x")
         self.btn_exec = tk.Button(
@@ -174,25 +177,105 @@ class InterfaceCorretor:
         java_files = buscar_arquivos_java(pasta_final)
         self.caminhos_aluno = java_files
         self.card_aluno.atualizar_status(f"{os.path.basename(pasta_final)} ({len(java_files)} arq.)")
+
+    def sel_conceitos(self):
+        # Carrega concepts.md diretamente
+        base = os.path.dirname(__file__)
+        prompts_dir = os.path.abspath(os.path.join(base, '..', '05-prompts'))
+        concepts_path = os.path.join(prompts_dir, 'concepts.md')
+        try:
+            with open(concepts_path, 'r', encoding='utf-8') as f:
+                concepts_text = f.read()
+        except Exception:
+            messagebox.showerror('Erro', f'Não foi possível ler {concepts_path}')
+            return
+        # Parse simples dos blocos numerados
+        blocks = []
+        cur = None
+        for line in concepts_text.splitlines():
+            m = re.match(r'^(\d+)\.\s*(.*)', line)
+            if m:
+                if cur:
+                    blocks.append(cur)
+                cur = {'num': int(m.group(1)), 'title': m.group(2).strip(), 'text': line + '\n'}
+            else:
+                if cur:
+                    cur['text'] += line + '\n'
+        if cur:
+            blocks.append(cur)
+        sel = self._open_concepts_selector(blocks)
+        if sel is None:
+            return
+        selected_nums = [str(blocks[i]['num']) for i in sel]
+        self.conceitos_limite = selected_nums
+        titles = [blocks[i]['title'] for i in sel]
+        status = f"{len(selected_nums)} selecionado(s): " + (", ".join(titles[:3]) + ("..." if len(titles) > 3 else ""))
+        self.card_concepts.atualizar_status(status)
     def executar(self):
         if not self.caminho_enunciado or not self.caminhos_aluno:
             messagebox.showwarning("Aviso", "Por favor, selecione o Enunciado e a Pasta do Aluno.")
             return
         self.confirmado = True
         self.root.destroy()
+
+    def _open_concepts_selector(self, blocks: List[dict]) -> Optional[List[int]]:
+        win = tk.Toplevel(self.root)
+        win.title('Selecionar conceitos (multi)')
+        win.geometry('480x520')
+        tk.Label(win, text='Marque os conceitos que devem ser avaliados:').pack(anchor='w', padx=10, pady=(10,0))
+        # Área rolável
+        container = tk.Frame(win)
+        container.pack(fill='both', expand=True, padx=10, pady=8)
+        canvas = tk.Canvas(container)
+        scrollbar = tk.Scrollbar(container, orient='vertical', command=canvas.yview)
+        scroll_frame = tk.Frame(canvas)
+        scroll_frame.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0,0), window=scroll_frame, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        vars = []
+        for b in blocks:
+            var = tk.IntVar(value=0)
+            chk = tk.Checkbutton(scroll_frame, text=f"{b['num']}. {b['title']}", variable=var, anchor='w', justify='left')
+            chk.pack(anchor='w', fill='x')
+            desc = re.sub(r'^\s*\d+\.\s*.*\n', '', b['text'], count=1)
+            lbl = tk.Label(scroll_frame, text=desc.strip(), font=('Segoe UI', 9), fg='#374151', wraplength=440, justify='left')
+            lbl.pack(anchor='w', padx=20, pady=(0,8))
+            vars.append(var)
+
+        result = {'sel': None}
+        def on_ok():
+            sel = [i for i, v in enumerate(vars) if v.get()]
+            result['sel'] = sel
+            win.destroy()
+        def on_cancel():
+            result['sel'] = None
+            win.destroy()
+        btn_frame = tk.Frame(win)
+        btn_frame.pack(pady=8)
+        tk.Button(btn_frame, text='OK', command=on_ok).pack(side='left', padx=6)
+        tk.Button(btn_frame, text='Cancelar', command=on_cancel).pack(side='left', padx=6)
+        self.root.wait_window(win)
+        return result['sel']
     def get_data(self):
         self.root.mainloop()
-        return self.caminho_enunciado, self.caminhos_gabarito, self.caminhos_aluno if self.confirmado else (None, None, None)
-
+        if not self.confirmado:
+            return (None, None, None, None)
+        return self.caminho_enunciado, self.caminhos_gabarito, self.caminhos_aluno, getattr(self, 'conceitos_limite', None)
 
 
 # Seleciona os arquivos ao iniciar o script usando a nova interface orientada a objetos
 app = InterfaceCorretor()
-ENUNCIADO_FILE_PATH, GABARITO_FILE_PATHS, CODIGOS_JAVA_PATHS = app.get_data()
+ENUNCIADO_FILE_PATH, GABARITO_FILE_PATHS, CODIGOS_JAVA_PATHS, CONCEITOS_A_AVALIAR = app.get_data()
 if ENUNCIADO_FILE_PATH:
     print(f"Enunciado selecionado: {ENUNCIADO_FILE_PATH}")
     print(f"Gabarito(s) selecionado(s): {GABARITO_FILE_PATHS if GABARITO_FILE_PATHS else 'Nenhum'}")
     print(f"Arquivos de código selecionados: {CODIGOS_JAVA_PATHS}")
+    print(f"Conceito limite informado: {CONCEITOS_A_AVALIAR if CONCEITOS_A_AVALIAR else 'Nenhum'}")
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -217,17 +300,18 @@ MAX_RETRIES = 5
 
 # --- 2. DEFINIÇÃO DO ESTADO (STATE) DO LANGGRAPH ---
 class CorrectionState(TypedDict):
-    """Representa o estado do processo de correção."""
+    # Representa o estado do processo de correção.
     enunciado: str
     gabarito: Optional[str]
     codigo_aluno: str
     feedback_bruto: str  # Resultado da LLM (Passo 1/Nó Básico)
     avaliacao_status: str # Status extraído para tomada de decisão futura
+    conceitos_limite: Optional[str]
 
 # --- 3. FUNÇÕES UTILITÁRIAS ---
 
 def read_file_content(file_path: str) -> str:
-    """Função para ler o conteúdo de um arquivo de forma segura."""
+    # Função para ler o conteúdo de um arquivo de forma segura.
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -266,7 +350,7 @@ class PromptManager:
         return self._load('persona.md')
 
     def user_template(self) -> str:
-        # template neutro onde o código e o enunciado serão injetados
+        # Template neutro onde o código e o enunciado serão injetados
         text = self._load('user_template.md')
         if not text:
             # Template por omissão — o código insere os blocos marcados
@@ -277,10 +361,77 @@ class PromptManager:
             )
         return text
 
-    def fill_user_template(self, enunciado: str, gabarito: Optional[str], codigo_aluno: str) -> str:
+    def _parse_concepts(self, concepts_text: str) -> List[dict]:
+        # Parseia concepts.md em blocos numerados: [{'num': int, 'title': str, 'text': str}, ...]
+        lines = concepts_text.splitlines()
+        blocks: List[dict] = []
+        cur = None
+        for line in lines:
+            m = re.match(r'^(\d+)\.\s*(.*)', line)
+            if m:
+                if cur:
+                    blocks.append(cur)
+                cur = {'num': int(m.group(1)), 'title': m.group(2).strip(), 'text': line + '\n'}
+            else:
+                if cur:
+                    cur['text'] += line + '\n'
+        if cur:
+            blocks.append(cur)
+        return blocks
+
+    def fill_user_template(self, enunciado: str, gabarito: Optional[str], codigo_aluno: str, conceitos_a_avaliar: Optional[Union[str, List[str]]] = None) -> str:
         template = self.user_template()
         g = gabarito or ""
-        return template.replace("{{ENUNCIADO}}", enunciado).replace("{{GABARITO}}", g).replace("{{CODIGO_ALUNO}}", codigo_aluno)
+        result = template.replace("{{ENUNCIADO}}", enunciado).replace("{{GABARITO}}", g).replace("{{CODIGO_ALUNO}}", codigo_aluno)
+        # Substitui o placeholder de conceitos por um bloco apropriado.
+        if "{{CONCEITOS_A_AVALIAR}}" in result:
+            if conceitos_a_avaliar:
+                concepts_text = self._load('concepts.md')
+                blocks = self._parse_concepts(concepts_text)
+                selected_text = ''
+                note = ''
+                if isinstance(conceitos_a_avaliar, list):
+                    sel_nums = set()
+                    for v in conceitos_a_avaliar:
+                        try:
+                            sel_nums.add(int(v))
+                        except Exception:
+                            for b in blocks:
+                                if v.strip().lower() in b['title'].lower():
+                                    sel_nums.add(b['num'])
+                    for b in blocks:
+                        if b['num'] in sel_nums:
+                            selected_text += b['text'] + '\n'
+                    note = 'Avaliar apenas os conceitos selecionados.'
+                else:
+                    v = conceitos_a_avaliar.strip()
+                    if v.isdigit():
+                        n = int(v)
+                        for b in blocks:
+                            if b['num'] <= n:
+                                selected_text += b['text'] + '\n'
+                        note = f'Avaliar até: {n} (incluir conceitos 1..{n}).'
+                    else:
+                        idx = None
+                        for b in blocks:
+                            if v.lower() in b['title'].lower():
+                                idx = b['num']
+                                break
+                        if idx:
+                            for b in blocks:
+                                if b['num'] <= idx:
+                                    selected_text += b['text'] + '\n'
+                            note = f'Avaliar até: {v} (incluir conceitos 1..{idx}).'
+                        else:
+                            # Fallback: iincluir todos conceitos
+                            selected_text = concepts_text
+                            note = f'Avaliar até: {v} (não foi possível mapear; incluindo lista completa).'
+
+                concepts_block = "\n-- CONCEITOS (referência) --\n" + selected_text.strip() + "\n\n-- NOTA: " + note + " --\n"
+                result = result.replace("{{CONCEITOS_A_AVALIAR}}", concepts_block)
+            else:
+                result = result.replace("{{CONCEITOS_A_AVALIAR}}", "")
+        return result
 
 # --- Função para remover comentários de código Java ---
 def remove_java_comments(code: str) -> str:
@@ -294,7 +445,7 @@ def remove_java_comments(code: str) -> str:
     return code
 
 def generate_content_with_retry(prompt, system_instruction):
-    """Função robusta para chamar a API do Gemini com retries e backoff, forçando resposta JSON ESTRITO."""
+    # Função para chamar a API do Gemini com retries e backoff
     for attempt in range(MAX_RETRIES):
         try:
             config = {
@@ -358,7 +509,8 @@ def correction_node(state: CorrectionState) -> dict:
     if persona_text:
         # Coloca a persona antes da instrução do sistema para dar identidade/contexto consistente ao modelo.
         system_instruction = persona_text + "\n\n" + system_instruction
-    user_prompt = pm.fill_user_template(enunciado, gabarito, codigo_aluno)
+    conceitos_limite = state.get('conceitos_limite')
+    user_prompt = pm.fill_user_template(enunciado, gabarito, codigo_aluno, conceitos_limite)
     feedback_json = generate_content_with_retry(user_prompt, system_instruction)
     print("--- LLM RESPONDEU. RETORNANDO AO GRAFO. ---")
     return {
@@ -411,7 +563,8 @@ if __name__ == "__main__":
         "gabarito": gabarito_content,
         "codigo_aluno": codigo_content,
         "feedback_bruto": "",
-        "avaliacao_status": ""
+        "avaliacao_status": "",
+        "conceitos_limite": CONCEITOS_A_AVALIAR
     }
     final_state = app.invoke(initial_state)
     print("\n--- RESULTADO FINAL DO GRAFO ---")
