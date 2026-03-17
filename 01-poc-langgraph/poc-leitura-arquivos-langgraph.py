@@ -164,20 +164,40 @@ class InterfaceCorretor:
         self.card_gaba.atualizar_status(f"{os.path.basename(pasta_final)} ({len(self.caminhos_gabarito)} arq.)")
 
     def sel_aluno(self):
+        # Permite selecionar uma pasta única de aluno ou um diretório pai contendo múltiplos projetos de alunos.
         initialdir = None
         if self.caminhos_gabarito:
             first_gabarito = self.caminhos_gabarito[0]
             initialdir = os.path.dirname(os.path.dirname(first_gabarito))
 
-        pasta = filedialog.askdirectory(title="Selecionar Pasta do Aluno", initialdir=initialdir)
+        pasta = filedialog.askdirectory(title="Selecionar Pasta do Aluno (ou pasta com vários alunos)", initialdir=initialdir)
         if not pasta:
             return
         pasta_final = selecionar_pasta_ou_zip(pasta, "aluno_zip_")
         if not pasta_final:
             return
-        java_files = buscar_arquivos_java(pasta_final)
-        self.caminhos_aluno = java_files
-        self.card_aluno.atualizar_status(f"{os.path.basename(pasta_final)} ({len(java_files)} arq.)")
+
+        # Se a pasta selecionada contém subpastas, é oferecido seleção múltipla para o usuário
+        subdirs = [os.path.join(pasta_final, d) for d in os.listdir(pasta_final) if os.path.isdir(os.path.join(pasta_final, d))]
+        if subdirs:
+            # Constrói blocos no formato esperado por _open_concepts_selector
+            blocks = []
+            for i, d in enumerate(subdirs, start=1):
+                blocks.append({'num': i, 'title': os.path.basename(d), 'text': os.path.basename(d) + '\n'})
+            sel = self._open_concepts_selector(blocks)
+            if sel is None:
+                return
+            selected_dirs = [subdirs[i] for i in sel]
+            # Armazena a lista de pastas de alunos selecionadas
+            self.alunos_dirs = selected_dirs
+            total_files = sum(len(buscar_arquivos_java(sd)) for sd in selected_dirs)
+            self.card_aluno.atualizar_status(f"{len(selected_dirs)} alunos selecionados ({total_files} arquivos .java)")
+        else:
+            # Sem subpastas: trata como um único aluno
+            java_files = buscar_arquivos_java(pasta_final)
+            self.caminhos_aluno = java_files
+            self.alunos_dirs = [pasta_final]
+            self.card_aluno.atualizar_status(f"{os.path.basename(pasta_final)} ({len(java_files)} arq.)")
 
     def sel_conceitos(self):
         # Carrega concepts.md diretamente
@@ -213,8 +233,12 @@ class InterfaceCorretor:
         status = f"{len(selected_nums)} selecionado(s): " + (", ".join(titles[:3]) + ("..." if len(titles) > 3 else ""))
         self.card_concepts.atualizar_status(status)
     def executar(self):
-        if not self.caminho_enunciado or not self.caminhos_aluno:
-            messagebox.showwarning("Aviso", "Por favor, selecione o Enunciado e a Pasta do Aluno.")
+        # Aceita tanto seleção única de arquivos (`caminhos_aluno`) quanto seleção múltipla de pastas (`alunos_dirs`).
+        has_enunciado = bool(self.caminho_enunciado)
+        has_single = bool(getattr(self, 'caminhos_aluno', None))
+        has_multiple = bool(getattr(self, 'alunos_dirs', None))
+        if not has_enunciado or (not has_single and not has_multiple):
+            messagebox.showwarning("Aviso", "Por favor, selecione o Enunciado e a Pasta do Aluno (ou a pasta pai com múltiplos alunos).")
             return
         self.confirmado = True
         self.root.destroy()
@@ -266,7 +290,13 @@ class InterfaceCorretor:
         self.root.mainloop()
         if not self.confirmado:
             return (None, None, None, None)
-        return self.caminho_enunciado, self.caminhos_gabarito, self.caminhos_aluno, getattr(self, 'conceitos_limite', None)
+        # Retorna: enunciado, gabarito paths, lista de pastas de aluno selecionadas, conceitos
+        return (
+            self.caminho_enunciado,
+            self.caminhos_gabarito,
+            getattr(self, 'alunos_dirs', self.caminhos_aluno),
+            getattr(self, 'conceitos_limite', None)
+        )
 
 
 # Seleciona os arquivos ao iniciar o script usando a nova interface orientada a objetos
@@ -435,28 +465,28 @@ class PromptManager:
         return result
 
 
-# def _save_prompt_for_analysis(system_instruction: str, user_prompt: str) -> str:
-#     """Salva system_instruction e user_prompt) em um arquivo .txt para análise.
-#
-#     Retorna o caminho do ficheiro criado.
-#     """
-#     base = os.path.dirname(__file__)
-#     prompts_dir = os.path.abspath(os.path.join(base, '..', '05-prompts'))
-#     out_dir = os.path.join(prompts_dir, 'sent_prompts')
-#     try:
-#         os.makedirs(out_dir, exist_ok=True)
-#     except Exception:
-#         out_dir = os.path.abspath(os.path.join(base, '..'))
-#     fname = os.path.join(out_dir, f"prompt_sent_{int(time.time())}.txt")
-#     try:
-#         with open(fname, 'w', encoding='utf-8') as f:
-#             f.write("--- SYSTEM INSTRUCTION ---\n")
-#             f.write(system_instruction + "\n\n")
-#             f.write("--- USER PROMPT ---\n")
-#             f.write(user_prompt + "\n")
-#     except Exception:
-#         return ""
-#     return fname
+def _save_prompt_for_analysis(system_instruction: str, user_prompt: str) -> str:
+    """Salva `system_instruction` e `user_prompt` em um arquivo .txt para análise.
+    Retorna o caminho do ficheiro criado.
+    """
+    base = os.path.dirname(__file__)
+    prompts_dir = os.path.abspath(os.path.join(base, '..', '05-prompts'))
+    out_dir = os.path.join(prompts_dir, 'sent_prompts')
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception:
+        out_dir = os.path.abspath(os.path.join(base, '..'))
+
+    fname = os.path.join(out_dir, f"prompt_sent_{int(time.time())}.txt")
+    try:
+        with open(fname, 'w', encoding='utf-8') as f:
+            f.write("--- SYSTEM INSTRUCTION ---\n")
+            f.write(system_instruction + "\n\n")
+            f.write("--- USER PROMPT ---\n")
+            f.write(user_prompt + "\n")
+    except Exception:
+        return ""
+    return fname
 
 
 # --- Função para remover comentários de código Java ---
@@ -584,14 +614,14 @@ def correction_node(state: CorrectionState) -> dict:
     user_prompt = pm.fill_user_template(enunciado, gabarito, codigo_aluno, conceitos_limite)
 
     # Salva prompt (system + user) para análise local antes de enviar à LLM
-    # try:
-    #     saved = _save_prompt_for_analysis(system_instruction, user_prompt)
-    #     if saved:
-    #         print(f"Prompt salvo para análise: {saved}")
-    # except Exception:
-    #     pass
+    try:
+        saved = _save_prompt_for_analysis(system_instruction, user_prompt)
+        if saved:
+            print(f"Prompt salvo para análise: {saved}")
+    except Exception:
+        pass
     # Prompt será enviado à LLM
-    
+
     feedback_json = generate_content_with_retry(user_prompt, system_instruction)
     print("--- LLM RESPONDEU. RETORNANDO AO GRAFO. ---")
     return {
@@ -627,7 +657,12 @@ if __name__ == "__main__":
     else:
         gabarito_content = None
     print(f"[PASSO 3] Lendo arquivos de código do aluno: {CODIGOS_JAVA_PATHS}")
-    codigo_content = read_and_concat_java_files(CODIGOS_JAVA_PATHS)
+    # Se a lista contém pastas (modo lote), não tente abrir diretórios como arquivos.
+    if CODIGOS_JAVA_PATHS and isinstance(CODIGOS_JAVA_PATHS, list) and all(os.path.isdir(p) for p in CODIGOS_JAVA_PATHS):
+        print("Modo lote detectado: cada item é uma pasta de aluno. O processamento por aluno será feito em sequência.")
+        codigo_content = ""
+    else:
+        codigo_content = read_and_concat_java_files(CODIGOS_JAVA_PATHS)
     print("\n--- Conteúdo do Código Lido (Amostra) ---")
     print(codigo_content.strip()[:300] + '...')
     print("-" * 40)
@@ -638,50 +673,132 @@ if __name__ == "__main__":
     workflow.add_edge("correcao", END)
     app = workflow.compile()
     # 5.3. Execução do LangGraph com o Conteúdo Lido
-    TEST_CASE_NAME = "TESTE DE LEITURA DE ARQUIVOS"
-    print(f"\nINÍCIO DA EXECUÇÃO DO GRAFO - {TEST_CASE_NAME}")
-    print("-" * 80)
-    initial_state = {
-        "enunciado": enunciado_content,
-        "gabarito": gabarito_content,
-        "codigo_aluno": codigo_content,
-        "feedback_bruto": "",
-        "avaliacao_status": "",
-        "conceitos_limite": CONCEITOS_A_AVALIAR
-    }
-    final_state = app.invoke(initial_state)
-    print("\n--- RESULTADO FINAL DO GRAFO ---")
-    print(f"Feedback da LLM para {TEST_CASE_NAME} (JSON):")
-    print(final_state["feedback_bruto"])
-    print(f"\nStatus de avaliação: {final_state['avaliacao_status']}")
-    print("\n" + "=" * 80)
-    print("FIM DA EXECUÇÃO DO LANGGRAPH: PASSO 3 CONCLUÍDO.")
-    print("=" * 80)
-
-    # --- GERAÇÃO DO RELATÓRIO HTML ---
-    try:
-        feedback_json = json.loads(final_state["feedback_bruto"])
-    except Exception:
-        feedback_json = {"avaliacao": "Erro", "justificativa": "Erro ao decodificar JSON.", "sugestao_correcao": ""}
-    enunciado = enunciado_content.strip()
-    # Pós-processamento para normalizar quebras de linha escapadas
+    # Suporta dois modos:
+    # - modo único (comportamento original): CODIGOS_JAVA_PATHS é lista de arquivos .java
+    # - modo lote: CODIGOS_JAVA_PATHS é lista de pastas de aluno (seleção na UI)
     def normalize_newlines(text):
         return text.replace('\\n', '\n') if text else text
 
-    gabarito = normalize_newlines(gabarito_content.strip()) if gabarito_content else ""
-    codigo_aluno = normalize_newlines(codigo_content.strip())
-    avaliacao = feedback_json.get("avaliacao", "")
-    justificativa = feedback_json.get("justificativa", "")
-    dica_correcao = feedback_json.get("dica_correcao", "")
-    sugestao_correcao = normalize_newlines(feedback_json.get("sugestao_correcao", ""))
-    relatorio_saida = gerar_relatorio_html(
-        enunciado=enunciado,
-        gabarito=gabarito,
-        codigo_aluno=codigo_aluno,
-        avaliacao=avaliacao,
-        justificativa=justificativa,
-        dica_correcao=dica_correcao,
-        sugestao_correcao=sugestao_correcao
-    )
-    print(f"\nRelatório HTML gerado em: {relatorio_saida}")
-    webbrowser.open(f"file://{relatorio_saida}")
+    def save_feedback_json(student_name, feedback_obj):
+        base = os.path.dirname(__file__)
+        out_dir = os.path.abspath(os.path.join(base, '..', '05-prompts', 'received_responses'))
+        os.makedirs(out_dir, exist_ok=True)
+        ts = int(time.time())
+        fname = os.path.join(out_dir, f"{student_name}_feedback_{ts}.json")
+        try:
+            with open(fname, 'w', encoding='utf-8') as f:
+                json.dump(feedback_obj, f, ensure_ascii=False, indent=2)
+            print('Resposta salva em:', fname)
+        except Exception as e:
+            print('Falha ao salvar feedback JSON:', e)
+
+    # Detecta se estamos no modo lote (cada item é uma pasta)
+    batch_mode = False
+    if CODIGOS_JAVA_PATHS and isinstance(CODIGOS_JAVA_PATHS, list) and all(os.path.isdir(p) for p in CODIGOS_JAVA_PATHS):
+        batch_mode = True
+
+    if not batch_mode:
+        # Comportamento original (um único conjunto de arquivos já lidos acima)
+        TEST_CASE_NAME = "TESTE DE LEITURA DE ARQUIVOS"
+        print(f"\nINÍCIO DA EXECUÇÃO DO GRAFO - {TEST_CASE_NAME}")
+        print("-" * 80)
+        initial_state = {
+            "enunciado": enunciado_content,
+            "gabarito": gabarito_content,
+            "codigo_aluno": codigo_content,
+            "feedback_bruto": "",
+            "avaliacao_status": "",
+            "conceitos_limite": CONCEITOS_A_AVALIAR
+        }
+        final_state = app.invoke(initial_state)
+        print("\n--- RESULTADO FINAL DO GRAFO ---")
+        print(f"Feedback da LLM para {TEST_CASE_NAME} (JSON):")
+        print(final_state["feedback_bruto"])
+        print(f"\nStatus de avaliação: {final_state['avaliacao_status']}")
+        print("\n" + "=" * 80)
+        print("FIM DA EXECUÇÃO DO GRAFO: PASSO 3 CONCLUÍDO.")
+        print("=" * 80)
+
+        # --- GERAÇÃO DO RELATÓRIO HTML ---
+        try:
+            feedback_json = json.loads(final_state["feedback_bruto"])
+        except Exception:
+            feedback_json = {"avaliacao": "Erro", "justificativa": "Erro ao decodificar JSON.", "sugestao_correcao": ""}
+        enunciado = enunciado_content.strip()
+        gabarito = normalize_newlines(gabarito_content.strip()) if gabarito_content else ""
+        codigo_aluno = normalize_newlines(codigo_content.strip())
+        avaliacao = feedback_json.get("avaliacao", "")
+        justificativa = feedback_json.get("justificativa", "")
+        dica_correcao = feedback_json.get("dica_correcao", "")
+        sugestao_correcao = normalize_newlines(feedback_json.get("sugestao_correcao", ""))
+        relatorio_saida = gerar_relatorio_html(
+            enunciado=enunciado,
+            gabarito=gabarito,
+            codigo_aluno=codigo_aluno,
+            avaliacao=avaliacao,
+            justificativa=justificativa,
+            dica_correcao=dica_correcao,
+            sugestao_correcao=sugestao_correcao
+        )
+        print(f"\nRelatório HTML gerado em: {relatorio_saida}")
+        webbrowser.open(f"file://{relatorio_saida}")
+    else:
+        # Modo lote: iterar por cada pasta de aluno
+        print(f"Entrando em modo lote: processando {len(CODIGOS_JAVA_PATHS)} alunos...")
+        for sd in CODIGOS_JAVA_PATHS:
+            aluno_nome = os.path.basename(sd.rstrip(os.sep))
+            print(f"\n--- Aluno: {aluno_nome} ---")
+            # Extrai ZIPs se necessário
+            try:
+                pasta_final = selecionar_pasta_ou_zip(sd, f"aluno_zip_{aluno_nome}_")
+                if not pasta_final:
+                    pasta_final = sd
+            except Exception:
+                pasta_final = sd
+
+            java_files = buscar_arquivos_java(pasta_final)
+            if not java_files:
+                print(f"Nenhum arquivo .java encontrado para {aluno_nome} em {pasta_final}. Pulando.")
+                continue
+
+            codigo_content_student = read_and_concat_java_files(java_files)
+
+            initial_state = {
+                "enunciado": enunciado_content,
+                "gabarito": gabarito_content,
+                "codigo_aluno": codigo_content_student,
+                "feedback_bruto": "",
+                "avaliacao_status": "",
+                "conceitos_limite": CONCEITOS_A_AVALIAR
+            }
+            final_state = app.invoke(initial_state)
+
+            try:
+                feedback_json = json.loads(final_state["feedback_bruto"])
+            except Exception:
+                feedback_json = {"avaliacao": "Erro", "justificativa": "Erro ao decodificar JSON.", "sugestao_correcao": ""}
+
+            # Salva feedback JSON
+            save_feedback_json(aluno_nome, feedback_json)
+
+            # Gera relatório por aluno
+            enunciado = enunciado_content.strip()
+            gabarito = normalize_newlines(gabarito_content.strip()) if gabarito_content else ""
+            codigo_aluno = normalize_newlines(codigo_content_student.strip())
+            avaliacao = feedback_json.get("avaliacao", "")
+            justificativa = feedback_json.get("justificativa", "")
+            dica_correcao = feedback_json.get("dica_correcao", "")
+            sugestao_correcao = normalize_newlines(feedback_json.get("sugestao_correcao", ""))
+            try:
+                relatorio_saida = gerar_relatorio_html(
+                    enunciado=enunciado,
+                    gabarito=gabarito,
+                    codigo_aluno=codigo_aluno,
+                    avaliacao=avaliacao,
+                    justificativa=justificativa,
+                    dica_correcao=dica_correcao,
+                    sugestao_correcao=sugestao_correcao
+                )
+                print(f"Relatório HTML gerado para {aluno_nome}: {relatorio_saida}")
+            except Exception as e:
+                print('Falha ao gerar relatório HTML para', aluno_nome, e)

@@ -87,6 +87,18 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
       <div class="m-4">{blocos_html}</div>
     </details>'''
 
+    # Bloco da dica de correção (texto pedagógico, sem código)
+    dica_correcao_html = ""
+    if dica_correcao and dica_correcao.strip():
+        dica_esc = dica_correcao.replace('\n', '<br>').replace('\\n', '<br>')
+        dica_correcao_html = f'''
+    <details id="dica_correcao" open class="rounded-xl border border-amber-100 bg-amber-50">
+      <summary class="cursor-pointer px-4 py-3 text-base font-bold text-amber-800 select-none flex items-center">Dica de Correção
+        <button class="ml-4 px-2 py-1 text-xs rounded bg-amber-200 hover:bg-amber-300 font-mono copy-btn" data-target="dica-correcao-text">Copiar dica</button>
+      </summary>
+      <div class="text-amber-900 leading-relaxed px-4 pb-4" id="dica-correcao-text">{dica_esc}</div>
+    </details>'''
+
     html_final = f'''<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -120,6 +132,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
       <li><a href="#gabarito" class="sidebar-link block rounded-lg px-4 py-2 text-slate-700">Gabarito</a></li>
       <li><a href="#aluno" class="sidebar-link block rounded-lg px-4 py-2 text-slate-700">Código do Aluno</a></li>
       <li><a href="#justificativa" class="sidebar-link block rounded-lg px-4 py-2 text-slate-700">Feedback</a></li>
+      <li><a href="#dica_correcao" class="sidebar-link block rounded-lg px-4 py-2 text-slate-700">Dica de Correção</a></li>
       <li><a href="#sugestao" class="sidebar-link block rounded-lg px-4 py-2 text-slate-700">Sugestão</a></li>
     </ul>
   </nav>
@@ -147,9 +160,11 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
             <button class="ml-4 px-2 py-1 text-xs rounded bg-blue-200 hover:bg-blue-300 font-mono copy-btn" data-target="justificativa-text">Copiar feedback</button>
           </summary>
           <div class="text-blue-900 leading-relaxed px-4 pb-4" id="justificativa-text">{justificativa_html}</div>
-        </details>
+          </details>
 
-        {sugestao_html}
+          {dica_correcao_html}
+
+          {sugestao_html}
     </div>
     <footer class="text-center text-xs text-gray-400 mt-12 pt-6 border-t">
         Gerado automaticamente por LangGraph Corretor • {datetime.now().strftime('%d/%m/%Y %H:%M')}
@@ -160,7 +175,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
   <script>
     // Sidebar highlight
     const links = document.querySelectorAll('.sidebar-link');
-    const sections = ['enunciado','gabarito','aluno','justificativa','sugestao'].map(id => document.getElementById(id));
+    const sections = ['enunciado','gabarito','aluno','justificativa','dica_correcao','sugestao'].map(id => document.getElementById(id));
     function highlightSidebar(idx) {{
       links.forEach(function(l, i) {{ l.classList.toggle('active', i === idx); }});
     }}
