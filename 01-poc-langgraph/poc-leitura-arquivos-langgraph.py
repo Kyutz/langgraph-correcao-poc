@@ -6,6 +6,7 @@ import re
 import zipfile
 import tempfile
 import webbrowser
+import subprocess
 from typing import TypedDict, Optional, List, Union
 
 import tkinter as tk
@@ -433,6 +434,31 @@ class PromptManager:
                 result = result.replace("{{CONCEITOS_A_AVALIAR}}", "")
         return result
 
+
+# def _save_prompt_for_analysis(system_instruction: str, user_prompt: str) -> str:
+#     """Salva system_instruction e user_prompt) em um arquivo .txt para análise.
+#
+#     Retorna o caminho do ficheiro criado.
+#     """
+#     base = os.path.dirname(__file__)
+#     prompts_dir = os.path.abspath(os.path.join(base, '..', '05-prompts'))
+#     out_dir = os.path.join(prompts_dir, 'sent_prompts')
+#     try:
+#         os.makedirs(out_dir, exist_ok=True)
+#     except Exception:
+#         out_dir = os.path.abspath(os.path.join(base, '..'))
+#     fname = os.path.join(out_dir, f"prompt_sent_{int(time.time())}.txt")
+#     try:
+#         with open(fname, 'w', encoding='utf-8') as f:
+#             f.write("--- SYSTEM INSTRUCTION ---\n")
+#             f.write(system_instruction + "\n\n")
+#             f.write("--- USER PROMPT ---\n")
+#             f.write(user_prompt + "\n")
+#     except Exception:
+#         return ""
+#     return fname
+
+
 # --- Função para remover comentários de código Java ---
 def remove_java_comments(code: str) -> str:
     """Remove comentários de linha (//) e bloco (/* */) de código Java, e linhas vazias resultantes."""
@@ -443,6 +469,51 @@ def remove_java_comments(code: str) -> str:
     # Remove linhas vazias
     code = '\n'.join([linha for linha in code.splitlines() if linha.strip()])
     return code
+
+def format_with_google_java_format(code: str, jar_path: Optional[str] = None) -> str:
+    """Formata o código usando google-java-format quando o JAR estiver disponível.
+
+    Procura o JAR nas opções: `jar_path`, `GOOGLE_JAVA_FORMAT_JAR` (env)
+    e `06-tools/google-java-format.jar` no repositório.
+    """
+    if code is None:
+        return ""
+
+    # Resolve o caminho do JAR
+    candidates = []
+    if jar_path:
+        candidates.append(jar_path)
+    env_jar = os.getenv('GOOGLE_JAVA_FORMAT_JAR')
+    if env_jar:
+        candidates.append(env_jar)
+    repo_tools = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '06-tools', 'google-java-format.jar'))
+    candidates.append(repo_tools)
+    jar = None
+    for c in candidates:
+        if c and os.path.isfile(c):
+            jar = os.path.abspath(c)
+            break
+
+    if not jar:
+        return code
+
+    # Grava em arquivo temporário e formata
+    with tempfile.NamedTemporaryFile(suffix='.java', delete=False, mode='w', encoding='utf-8') as tf:
+        tf.write(code)
+        tmpname = tf.name
+    try:
+        subprocess.run(['java', '-jar', jar, '-i', tmpname], check=True)
+        with open(tmpname, 'r', encoding='utf-8') as f:
+            formatted = f.read()
+        return formatted
+    except Exception as e:
+        print(f"Aviso: falha ao executar google-java-format ({jar}): {e}")
+        return code
+    finally:
+        try:
+            os.unlink(tmpname)
+        except Exception:
+            pass
 
 def generate_content_with_retry(prompt, system_instruction):
     # Função para chamar a API do Gemini com retries e backoff
@@ -511,6 +582,16 @@ def correction_node(state: CorrectionState) -> dict:
         system_instruction = persona_text + "\n\n" + system_instruction
     conceitos_limite = state.get('conceitos_limite')
     user_prompt = pm.fill_user_template(enunciado, gabarito, codigo_aluno, conceitos_limite)
+
+    # Salva prompt (system + user) para análise local antes de enviar à LLM
+    # try:
+    #     saved = _save_prompt_for_analysis(system_instruction, user_prompt)
+    #     if saved:
+    #         print(f"Prompt salvo para análise: {saved}")
+    # except Exception:
+    #     pass
+    # Prompt será enviado à LLM
+    
     feedback_json = generate_content_with_retry(user_prompt, system_instruction)
     print("--- LLM RESPONDEU. RETORNANDO AO GRAFO. ---")
     return {
@@ -525,6 +606,8 @@ def read_and_concat_java_files(file_paths):
         nome = os.path.basename(path)
         conteudo = read_file_content(path)
         conteudo_sem_comentarios = remove_java_comments(conteudo)
+        # Tenta formatar com google-java-format se disponível, senão usa código original
+        conteudo_sem_comentarios = format_with_google_java_format(conteudo_sem_comentarios)
         combined += f"// --- ARQUIVO INÍCIO: {nome} ---\n"
         combined += conteudo_sem_comentarios.strip() + "\n"
         combined += f"// --- ARQUIVO FIM: {nome} ---\n\n"

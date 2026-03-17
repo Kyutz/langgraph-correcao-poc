@@ -6,7 +6,7 @@
 {{GABARITO}}
 ```
 
-— CONCEITOS A AVALIAR (opcional) —
+— CONCEITOS A AVALIAR  —
 {{CONCEITOS_A_AVALIAR}}
 
 — CÓDIGO DO ALUNO —
@@ -14,4 +14,3 @@
 {{CODIGO_ALUNO}}
 ```
 
-Siga o `System Prompt` fornecido (o comportamento e o protocolo de avaliação estão no `system_prompt.md`).
