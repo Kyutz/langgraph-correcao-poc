@@ -1,3 +1,5 @@
+05-prompts/sent_prompts/
+05-prompts/received_responses/
 
 .env
 .venv

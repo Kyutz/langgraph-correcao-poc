@@ -491,14 +491,82 @@ def _save_prompt_for_analysis(system_instruction: str, user_prompt: str) -> str:
 
 # --- Função para remover comentários de código Java ---
 def remove_java_comments(code: str) -> str:
-    """Remove comentários de linha (//) e bloco (/* */) de código Java, e linhas vazias resultantes."""
-    # Remove comentários de bloco
-    code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
-    # Remove comentários de linha
-    code = re.sub(r'//.*', '', code)
-    # Remove linhas vazias
-    code = '\n'.join([linha for linha in code.splitlines() if linha.strip()])
-    return code
+    """Remove comentários de linha (//) e bloco (/* */) de código Java."""
+    if not code:
+        return ""
+
+    out_chars = []
+    i = 0
+    n = len(code)
+
+    def is_escaped(pos):
+        # Verifica se o caractere na posição `pos` está precedido por um número ímpar de barras invertidas
+        cnt = 0
+        j = pos - 1
+        while j >= 0 and code[j] == '\\':
+            cnt += 1
+            j -= 1
+        return (cnt % 2) == 1
+
+    while i < n:
+        ch = code[i]
+        nxt = code[i+1] if i+1 < n else ''
+
+        # Garante que sequências como /* ou // dentro de strings ou char literals não sejam interpretadas como comentários
+        if ch == '"':
+            out_chars.append(ch)
+            i += 1
+            while i < n:
+                out_chars.append(code[i])
+                if code[i] == '"' and not is_escaped(i):
+                    i += 1
+                    break
+                i += 1
+            continue
+
+        # Mesma lógica para char literals
+        if ch == "'":
+            out_chars.append(ch)
+            i += 1
+            while i < n:
+                out_chars.append(code[i])
+                if code[i] == "'" and not is_escaped(i):
+                    i += 1
+                    break
+                i += 1
+            continue
+
+        # Comentário de linha
+        if ch == '/' and nxt == '/':
+            i += 2
+            while i < n and code[i] not in ('\n', '\r'):
+                i += 1
+            continue
+
+        # Comentário de bloco
+        if ch == '/' and nxt == '*':
+            i += 2
+            depth = 1
+            while i < n and depth > 0:
+                if code[i] == '/' and i+1 < n and code[i+1] == '*':
+                    depth += 1
+                    i += 2
+                elif code[i] == '*' and i+1 < n and code[i+1] == '/':
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+            # Após sair do loop, `i` já estará posicionado após o comentário de bloco fechado.
+            continue
+
+        # Caractere normal
+        out_chars.append(ch)
+        i += 1
+
+    # Remove linhas em branco resultantes da remoção de comentários
+    result = ''.join(out_chars)
+    lines = [ln for ln in result.splitlines() if ln.strip()]
+    return '\n'.join(lines)
 
 def format_with_google_java_format(code: str, jar_path: Optional[str] = None) -> str:
     """Formata o código usando google-java-format quando o JAR estiver disponível.
