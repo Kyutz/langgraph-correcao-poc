@@ -57,7 +57,7 @@ def selecionar_pasta_ou_zip(pasta, prefixo_temp):
         temp_dir = tempfile.mkdtemp(prefix=prefixo_temp)
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
-        # registra mapeamento para permitir copiar relatórios para a pasta original
+        # Registra mapeamento para permitir copiar relatórios para a pasta original
         try:
             EXTRACTED_SUBMISSIONS[temp_dir] = pasta
         except Exception:
@@ -189,6 +189,14 @@ class InterfaceCorretor:
         self.card_concepts.pack(fill="x", pady=8)
         footer = tk.Frame(self.root, bg="#f8fafc", pady=30)
         footer.pack(fill="x")
+        # Checkbox para decidir se salva relatório na pasta do código
+        self.save_report_var = tk.IntVar(value=1)
+        self.chk_save_report = tk.Checkbutton(
+            footer, text="Salvar relatório na pasta do aluno", variable=self.save_report_var,
+            bg="#f8fafc", anchor="w", justify='left'
+        )
+        self.chk_save_report.pack(anchor='w', padx=30, pady=(0,6))
+
         self.btn_exec = tk.Button(
             footer, text="EXECUTAR ANÁLISE", command=self.executar,
             font=("Segoe UI", 11, "bold"), bg="#10b981", fg="#ffffff",
@@ -353,8 +361,17 @@ class InterfaceCorretor:
 
 
 # Seleciona os arquivos ao iniciar o script usando a nova interface orientada a objetos
-app = InterfaceCorretor()
-ENUNCIADO_FILE_PATH, GABARITO_FILE_PATHS, CODIGOS_JAVA_PATHS, CONCEITOS_A_AVALIAR = app.get_data()
+ui = InterfaceCorretor()
+ENUNCIADO_FILE_PATH, GABARITO_FILE_PATHS, CODIGOS_JAVA_PATHS, CONCEITOS_A_AVALIAR = ui.get_data()
+# Lê a preferência do usuário sobre salvar relatórios (valor lido uma vez antes de sobrescrever variáveis)
+try:
+    save_var = getattr(ui, 'save_report_var', None)
+    if save_var is None:
+        SAVE_REPORT_ENABLED = True
+    else:
+        SAVE_REPORT_ENABLED = bool(save_var.get())
+except Exception:
+    SAVE_REPORT_ENABLED = True
 if ENUNCIADO_FILE_PATH:
     print(f"Enunciado selecionado: {ENUNCIADO_FILE_PATH}")
     print(f"Gabarito(s) selecionado(s): {GABARITO_FILE_PATHS if GABARITO_FILE_PATHS else 'Nenhum'}")
@@ -796,7 +813,7 @@ if __name__ == "__main__":
     workflow.add_node("correcao", correction_node)
     workflow.set_entry_point("correcao")
     workflow.add_edge("correcao", END)
-    app = workflow.compile()
+    graph = workflow.compile()
     # 5.3. Execução do LangGraph com o Conteúdo Lido
     # Suporta dois modos:
     # - modo único (comportamento original): CODIGOS_JAVA_PATHS é lista de arquivos .java
@@ -817,6 +834,53 @@ if __name__ == "__main__":
         except Exception as e:
             print('Falha ao salvar feedback JSON:', e)
 
+    # Verifica se a opção de salvar relatórios na pasta do aluno está habilitada (lida da UI)
+    def should_save_reports() -> bool:
+        try:
+            return bool(SAVE_REPORT_ENABLED)
+        except Exception:
+            return True
+
+    # Função para resolver o diretório alvo para salvar o relatório.
+    def resolve_target_dir(pasta_final: Optional[str], sd: Optional[str], codigos_java_paths: Optional[List[str]] = None, enunciado_file_path: Optional[str] = None) -> Optional[str]:
+        # Prioriza pasta_final mapeada (se for extração temporária, mapeia para original)
+        try:
+            if pasta_final:
+                mapped = _map_extracted_to_original(pasta_final)
+                if mapped and os.path.isdir(mapped):
+                    return mapped
+                if os.path.isdir(pasta_final):
+                    return pasta_final
+
+            # Fallbacks: em modo único, usa o primeiro caminho em codigos_java_paths
+            if codigos_java_paths and len(codigos_java_paths) > 0:
+                candidate = os.path.dirname(codigos_java_paths[0])
+                if os.path.isdir(candidate):
+                    return candidate
+
+            if sd and os.path.isdir(sd):
+                return sd
+
+            if enunciado_file_path:
+                d = os.path.dirname(enunciado_file_path)
+                if os.path.isdir(d):
+                    return d
+        except Exception:
+            pass
+        return None
+
+    def copy_report_to_student(relatorio_saida: str, target_dir: Optional[str]):
+        if not target_dir:
+            return False
+        try:
+            dst = os.path.join(target_dir, os.path.basename(relatorio_saida))
+            shutil.copy(relatorio_saida, dst)
+            print(f"Relatório copiado para: {dst}")
+            return True
+        except Exception as e:
+            print('Falha ao copiar relatório para a pasta do aluno:', e)
+            return False
+
     # Detecta se estamos no modo lote (cada item é uma pasta)
     batch_mode = False
     if CODIGOS_JAVA_PATHS and isinstance(CODIGOS_JAVA_PATHS, list) and all(os.path.isdir(p) for p in CODIGOS_JAVA_PATHS):
@@ -835,7 +899,7 @@ if __name__ == "__main__":
             "avaliacao_status": "",
             "conceitos_limite": CONCEITOS_A_AVALIAR
         }
-        final_state = app.invoke(initial_state)
+        final_state = graph.invoke(initial_state)
         print("\n--- RESULTADO FINAL DO GRAFO ---")
         print(f"Feedback da LLM para {TEST_CASE_NAME} (JSON):")
         print(final_state["feedback_bruto"])
@@ -869,19 +933,11 @@ if __name__ == "__main__":
         webbrowser.open(f"file://{relatorio_saida}")
         # Também salva uma cópia do relatório na mesma pasta onde os arquivos do aluno foram lidos
         try:
-            if CODIGOS_JAVA_PATHS and isinstance(CODIGOS_JAVA_PATHS, list) and len(CODIGOS_JAVA_PATHS) > 0:
-                student_dir = os.path.dirname(CODIGOS_JAVA_PATHS[0])
+            if not should_save_reports():
+                print('Opção de salvar relatório na pasta do código desativada; não copiando relatório.')
             else:
-                student_dir = os.path.dirname(ENUNCIADO_FILE_PATH) if ENUNCIADO_FILE_PATH else None
-            # Se o student_dir estiver dentro de uma extração temporária, mapeia para a pasta original
-            if student_dir:
-                student_dir_mapped = _map_extracted_to_original(student_dir)
-            else:
-                student_dir_mapped = None
-            if student_dir_mapped and os.path.isdir(student_dir_mapped):
-                dst = os.path.join(student_dir_mapped, os.path.basename(relatorio_saida))
-                shutil.copy(relatorio_saida, dst)
-                print(f"Relatório copiado para: {dst}")
+                target = resolve_target_dir(None, None, CODIGOS_JAVA_PATHS, ENUNCIADO_FILE_PATH)
+                copy_report_to_student(relatorio_saida, target)
         except Exception as e:
             print('Falha ao copiar relatório para a pasta do aluno:', e)
     else:
@@ -913,7 +969,7 @@ if __name__ == "__main__":
                 "avaliacao_status": "",
                 "conceitos_limite": CONCEITOS_A_AVALIAR
             }
-            final_state = app.invoke(initial_state)
+            final_state = graph.invoke(initial_state)
 
             try:
                 feedback_json = json.loads(final_state["feedback_bruto"])
@@ -942,17 +998,13 @@ if __name__ == "__main__":
                     sugestao_correcao=sugestao_correcao
                 )
                 print(f"Relatório HTML gerado para {aluno_nome}: {relatorio_saida}")
-                # Copia o relatório gerado para a pasta do aluno processado
+                # Copia o relatório gerado para a pasta do aluno processado (se habilitado)
                 try:
-                    # Se pasta_final é um diretório temporário extraído, mapeia para a pasta original `sd`
-                    if pasta_final:
-                        mapped = _map_extracted_to_original(pasta_final)
+                    if not should_save_reports():
+                        print('Opção de salvar relatório na pasta do código desativada; não copiando relatório para este aluno.')
                     else:
-                        mapped = None
-                    target_dir = mapped if mapped and os.path.isdir(mapped) else (pasta_final if pasta_final and os.path.isdir(pasta_final) else sd)
-                    dst2 = os.path.join(target_dir, os.path.basename(relatorio_saida))
-                    shutil.copy(relatorio_saida, dst2)
-                    print(f"Relatório copiado para: {dst2}")
+                        target_dir = resolve_target_dir(pasta_final, sd)
+                        copy_report_to_student(relatorio_saida, target_dir)
                 except Exception as e:
                     print('Falha ao copiar relatório para a pasta do aluno:', e)
             except Exception as e:
