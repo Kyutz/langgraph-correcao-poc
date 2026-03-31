@@ -7,6 +7,7 @@ import zipfile
 import tempfile
 import webbrowser
 import subprocess
+import shutil
 from typing import TypedDict, Optional, List, Union
 
 import tkinter as tk
@@ -19,6 +20,25 @@ from google.genai.errors import APIError
 from langgraph.graph import StateGraph, END
 
 from relatorio_html import gerar_relatorio_html
+
+# Map de extrações temporárias -> caminho original selecionado (quando um ZIP é extraído)
+EXTRACTED_SUBMISSIONS = {}
+
+def _map_extracted_to_original(path):
+    """Se `path` estiver dentro de um diretório temporário extraído, retorna o caminho
+    da pasta original escolhida pelo usuário; caso contrário, retorna `path` inalterado.
+    """
+    try:
+        for temp_root, original in EXTRACTED_SUBMISSIONS.items():
+            # Usa commonpath para verificar se path está dentro de temp_root
+            try:
+                if os.path.commonpath([os.path.abspath(path), os.path.abspath(temp_root)]) == os.path.abspath(temp_root):
+                    return original
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return path
 
 # --- Funções utilitárias ---
 def selecionar_pasta_ou_zip(pasta, prefixo_temp):
@@ -37,6 +57,11 @@ def selecionar_pasta_ou_zip(pasta, prefixo_temp):
         temp_dir = tempfile.mkdtemp(prefix=prefixo_temp)
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
+        # registra mapeamento para permitir copiar relatórios para a pasta original
+        try:
+            EXTRACTED_SUBMISSIONS[temp_dir] = pasta
+        except Exception:
+            pass
         subdirs = [os.path.join(temp_dir, d) for d in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, d))]
         if subdirs:
             return subdirs[0]
@@ -52,6 +77,33 @@ def buscar_arquivos_java(pasta):
             if f.endswith('.java'):
                 java_files.append(os.path.join(root, f))
     return java_files
+
+
+def count_java_in_dir_or_zip(pasta):
+    """Conta arquivos .java numa pasta. Se houver arquivos .zip na pasta, conta
+    também os .java dentro do(s) ZIP(s) sem extrair.
+    Retorna um inteiro com o total encontrado.
+    """
+    total = 0
+    try:
+        # Contagem em disco
+        if os.path.isdir(pasta):
+            total += len(buscar_arquivos_java(pasta))
+            # Procura zips na raiz da pasta e conta .java dentro deles
+            for fname in os.listdir(pasta):
+                if fname.lower().endswith('.zip'):
+                    zpath = os.path.join(pasta, fname)
+                    try:
+                        with zipfile.ZipFile(zpath, 'r') as zf:
+                            for info in zf.infolist():
+                                if info.filename.endswith('.java'):
+                                    total += 1
+                    except Exception:
+                        # Silencia erros de leitura de ZIPs aqui (contagem não crítica)
+                        pass
+    except Exception:
+        return 0
+    return total
 
 # --- SCHEMA JSON ESTRITO ---
 JSON_SCHEMA = {
@@ -184,13 +236,14 @@ class InterfaceCorretor:
             blocks = []
             for i, d in enumerate(subdirs, start=1):
                 blocks.append({'num': i, 'title': os.path.basename(d), 'text': os.path.basename(d) + '\n'})
-            sel = self._open_concepts_selector(blocks)
+            sel = self._open_concepts_selector(blocks, title='Selecionar alunos', prompt_text='Marque os alunos que deseja processar:')
             if sel is None:
                 return
             selected_dirs = [subdirs[i] for i in sel]
             # Armazena a lista de pastas de alunos selecionadas
             self.alunos_dirs = selected_dirs
-            total_files = sum(len(buscar_arquivos_java(sd)) for sd in selected_dirs)
+            # Conta .java em cada pasta ou dentro de zips sem extrair, para exibir número correto
+            total_files = sum(count_java_in_dir_or_zip(sd) for sd in selected_dirs)
             self.card_aluno.atualizar_status(f"{len(selected_dirs)} alunos selecionados ({total_files} arquivos .java)")
         else:
             # Sem subpastas: trata como um único aluno
@@ -243,11 +296,11 @@ class InterfaceCorretor:
         self.confirmado = True
         self.root.destroy()
 
-    def _open_concepts_selector(self, blocks: List[dict]) -> Optional[List[int]]:
+    def _open_concepts_selector(self, blocks: List[dict], title: str = 'Selecionar conceitos', prompt_text: str = 'Marque os conceitos que devem ser avaliados:') -> Optional[List[int]]:
         win = tk.Toplevel(self.root)
-        win.title('Selecionar conceitos (multi)')
+        win.title(title)
         win.geometry('480x520')
-        tk.Label(win, text='Marque os conceitos que devem ser avaliados:').pack(anchor='w', padx=10, pady=(10,0))
+        tk.Label(win, text=prompt_text).pack(anchor='w', padx=10, pady=(10,0))
         # Área rolável
         container = tk.Frame(win)
         container.pack(fill='both', expand=True, padx=10, pady=8)
@@ -703,9 +756,13 @@ def read_and_concat_java_files(file_paths):
     for path in file_paths:
         nome = os.path.basename(path)
         conteudo = read_file_content(path)
-        conteudo_sem_comentarios = remove_java_comments(conteudo)
-        # Tenta formatar com google-java-format se disponível, senão usa código original
-        conteudo_sem_comentarios = format_with_google_java_format(conteudo_sem_comentarios)
+        # Primeiro tente formatar o código original (melhor resultado para google-java-format)
+        try:
+            formatted = format_with_google_java_format(conteudo)
+        except Exception:
+            formatted = conteudo
+        # Em seguida remova comentários do código (remove_java_comments preserva literais)
+        conteudo_sem_comentarios = remove_java_comments(formatted)
         combined += f"// --- ARQUIVO INÍCIO: {nome} ---\n"
         combined += conteudo_sem_comentarios.strip() + "\n"
         combined += f"// --- ARQUIVO FIM: {nome} ---\n\n"
@@ -810,6 +867,23 @@ if __name__ == "__main__":
         )
         print(f"\nRelatório HTML gerado em: {relatorio_saida}")
         webbrowser.open(f"file://{relatorio_saida}")
+        # Também salva uma cópia do relatório na mesma pasta onde os arquivos do aluno foram lidos
+        try:
+            if CODIGOS_JAVA_PATHS and isinstance(CODIGOS_JAVA_PATHS, list) and len(CODIGOS_JAVA_PATHS) > 0:
+                student_dir = os.path.dirname(CODIGOS_JAVA_PATHS[0])
+            else:
+                student_dir = os.path.dirname(ENUNCIADO_FILE_PATH) if ENUNCIADO_FILE_PATH else None
+            # Se o student_dir estiver dentro de uma extração temporária, mapeia para a pasta original
+            if student_dir:
+                student_dir_mapped = _map_extracted_to_original(student_dir)
+            else:
+                student_dir_mapped = None
+            if student_dir_mapped and os.path.isdir(student_dir_mapped):
+                dst = os.path.join(student_dir_mapped, os.path.basename(relatorio_saida))
+                shutil.copy(relatorio_saida, dst)
+                print(f"Relatório copiado para: {dst}")
+        except Exception as e:
+            print('Falha ao copiar relatório para a pasta do aluno:', e)
     else:
         # Modo lote: iterar por cada pasta de aluno
         print(f"Entrando em modo lote: processando {len(CODIGOS_JAVA_PATHS)} alunos...")
@@ -868,5 +942,18 @@ if __name__ == "__main__":
                     sugestao_correcao=sugestao_correcao
                 )
                 print(f"Relatório HTML gerado para {aluno_nome}: {relatorio_saida}")
+                # Copia o relatório gerado para a pasta do aluno processado
+                try:
+                    # Se pasta_final é um diretório temporário extraído, mapeia para a pasta original `sd`
+                    if pasta_final:
+                        mapped = _map_extracted_to_original(pasta_final)
+                    else:
+                        mapped = None
+                    target_dir = mapped if mapped and os.path.isdir(mapped) else (pasta_final if pasta_final and os.path.isdir(pasta_final) else sd)
+                    dst2 = os.path.join(target_dir, os.path.basename(relatorio_saida))
+                    shutil.copy(relatorio_saida, dst2)
+                    print(f"Relatório copiado para: {dst2}")
+                except Exception as e:
+                    print('Falha ao copiar relatório para a pasta do aluno:', e)
             except Exception as e:
                 print('Falha ao gerar relatório HTML para', aluno_nome, e)
