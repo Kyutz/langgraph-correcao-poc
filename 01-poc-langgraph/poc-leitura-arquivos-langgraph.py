@@ -174,36 +174,50 @@ class InterfaceCorretor:
         self.confirmado = False
         self._build_ui()
     def _build_ui(self):
-        header = tk.Frame(self.root, bg="#f8fafc", pady=20)
+        header = tk.Frame(self.root, bg="#f8fafc", pady=12)
         header.pack(fill="x")
         tk.Label(header, text="Corretor de Projetos POO", font=("Segoe UI", 16, "bold"), fg="#0f172a", bg="#f8fafc").pack()
         self.main_container = tk.Frame(self.root, bg="#f8fafc", padx=30)
         self.main_container.pack(fill="both", expand=True)
         self.card_enunc = CardSelecao(self.main_container, "1. Enunciado", "Instruções (Markdown ou Texto)", self.sel_enunciado)
-        self.card_enunc.pack(fill="x", pady=8)
+        self.card_enunc.pack(fill="x", pady=6)
         self.card_gaba = CardSelecao(self.main_container, "2. Gabarito", "Pasta com ficheiros .java (Opcional)", self.sel_gabarito)
-        self.card_gaba.pack(fill="x", pady=8)
+        self.card_gaba.pack(fill="x", pady=6)
         self.card_aluno = CardSelecao(self.main_container, "3. Código do Aluno", "Pasta com o projeto .java do aluno", self.sel_aluno)
-        self.card_aluno.pack(fill="x", pady=8)
+        self.card_aluno.pack(fill="x", pady=6)
         self.card_concepts = CardSelecao(self.main_container, "4. Conceitos a Avaliar", "Escolher quais conceitos incluir na avaliação (Opcional)", self.sel_conceitos)
-        self.card_concepts.pack(fill="x", pady=8)
-        footer = tk.Frame(self.root, bg="#f8fafc", pady=30)
-        footer.pack(fill="x")
+        self.card_concepts.pack(fill="x", pady=6)
+        # Pequeno painel de controles entre os cards e o rodapé (checkbox + modo)
+        controls_frame = tk.Frame(self.main_container, bg="#f8fafc")
+        controls_frame.pack(fill='x', pady=(4, 8))
+
         # Checkbox para decidir se salva relatório na pasta do código
         self.save_report_var = tk.IntVar(value=1)
         self.chk_save_report = tk.Checkbutton(
-            footer, text="Salvar relatório na pasta do aluno", variable=self.save_report_var,
+            controls_frame, text="Salvar relatório na pasta do aluno", variable=self.save_report_var,
             bg="#f8fafc", anchor="w", justify='left'
         )
-        self.chk_save_report.pack(anchor='w', padx=30, pady=(0,6))
+        self.chk_save_report.pack(anchor='w', padx=6, pady=(0,4))
 
+        # Radio buttons para modo de retorno: dar resposta completa ou apenas dicas
+        self.mode_var = tk.IntVar(value=1)
+        frame_mode = tk.Frame(controls_frame, bg="#f8fafc")
+        frame_mode.pack(anchor='w', padx=6, pady=(0,4))
+        tk.Label(frame_mode, text="Modo de retorno:", bg="#f8fafc").pack(side='left')
+        tk.Radiobutton(frame_mode, text="Dar resposta", variable=self.mode_var, value=1, bg="#f8fafc").pack(side='left', padx=6)
+        tk.Radiobutton(frame_mode, text="Apenas dicas", variable=self.mode_var, value=0, bg="#f8fafc").pack(side='left', padx=6)
+
+        # Rodapé dentro do main_container para evitar ficar fora da janela
+        footer = tk.Frame(self.main_container, bg="#f8fafc", pady=6)
+        footer.pack(fill="x", pady=(4, 8))
         self.btn_exec = tk.Button(
             footer, text="EXECUTAR ANÁLISE", command=self.executar,
-            font=("Segoe UI", 11, "bold"), bg="#10b981", fg="#ffffff",
-            relief="flat", cursor="hand2", padx=50, pady=12,
+            font=("Segoe UI", 12, "bold"), bg="#10b981", fg="#ffffff",
+            relief="flat", cursor="hand2", width=30, padx=6, pady=8,
             activebackground="#059669"
         )
-        self.btn_exec.pack()
+        # Largura fixa para o botão — não expandir horizontalmente
+        self.btn_exec.pack(padx=20, pady=(4,8))
     def sel_enunciado(self):
         p = filedialog.askopenfilename(title="Selecionar Enunciado", filetypes=[("Markdown/Text", ("*.md", "*.txt"))])
         if p:
@@ -372,6 +386,15 @@ try:
         SAVE_REPORT_ENABLED = bool(save_var.get())
 except Exception:
     SAVE_REPORT_ENABLED = True
+# Lê a preferência do usuário sobre o modo de correção (resolutivo = dar resposta; scaffolding = apenas dicas)
+try:
+    mode_var = getattr(ui, 'mode_var', None)
+    if mode_var is None:
+        MODO_CORRECAO = 'resolutive'
+    else:
+        MODO_CORRECAO = 'resolutive' if mode_var.get() else 'scaffolding'
+except Exception:
+    MODO_CORRECAO = 'resolutive'
 if ENUNCIADO_FILE_PATH:
     print(f"Enunciado selecionado: {ENUNCIADO_FILE_PATH}")
     print(f"Gabarito(s) selecionado(s): {GABARITO_FILE_PATHS if GABARITO_FILE_PATHS else 'Nenhum'}")
@@ -437,10 +460,9 @@ class PromptManager:
         except Exception:
             return ""
 
-    def system_instruction(self) -> str:
+    def system_instruction(self, mode: Optional[str] = None) -> str:
         text = self._load('system_prompt.md')
         if not text:
-            # fallback curto
             return (
                 "Você é um Professor de Programação Orientada a Objetos (POO). "
                 "Avalie o código Java do aluno considerando o enunciado."
@@ -743,7 +765,8 @@ def correction_node(state: CorrectionState) -> dict:
     # Usa PromptManager para carregar system prompt, persona e template do utilizador.
     pm = PromptManager()
     # Carrega o system_instruction e concatena a persona (se existir) para garantir que o modelo recebe ambas.
-    system_instruction = pm.system_instruction()
+    # Carrega system instruction apropriada para o modo de correção solicitado
+    system_instruction = pm.system_instruction(state.get('modo_correcao'))
     persona_text = pm.persona()
     if persona_text:
         # Coloca a persona antes da instrução do sistema para dar identidade/contexto consistente ao modelo.
@@ -883,6 +906,7 @@ if __name__ == "__main__":
 
     # Detecta se estamos no modo lote (cada item é uma pasta)
     batch_mode = False
+    # Modo lote: ativado sempre que `CODIGOS_JAVA_PATHS` for uma lista de diretórios
     if CODIGOS_JAVA_PATHS and isinstance(CODIGOS_JAVA_PATHS, list) and all(os.path.isdir(p) for p in CODIGOS_JAVA_PATHS):
         batch_mode = True
 
@@ -897,7 +921,8 @@ if __name__ == "__main__":
             "codigo_aluno": codigo_content,
             "feedback_bruto": "",
             "avaliacao_status": "",
-            "conceitos_limite": CONCEITOS_A_AVALIAR
+            "conceitos_limite": CONCEITOS_A_AVALIAR,
+            "modo_correcao": MODO_CORRECAO
         }
         final_state = graph.invoke(initial_state)
         print("\n--- RESULTADO FINAL DO GRAFO ---")
@@ -913,6 +938,13 @@ if __name__ == "__main__":
             feedback_json = json.loads(final_state["feedback_bruto"])
         except Exception:
             feedback_json = {"avaliacao": "Erro", "justificativa": "Erro ao decodificar JSON.", "sugestao_correcao": ""}
+
+        # Se o usuário escolheu modo 'scaffolding' (apenas dicas), força sugestao_correcao vazia no relatório
+        try:
+            if MODO_CORRECAO == 'scaffolding' and isinstance(feedback_json, dict):
+                feedback_json['sugestao_correcao'] = ""
+        except Exception:
+            pass
         enunciado = enunciado_content.strip()
         gabarito = normalize_newlines(gabarito_content.strip()) if gabarito_content else ""
         codigo_aluno = normalize_newlines(codigo_content.strip())
@@ -967,7 +999,8 @@ if __name__ == "__main__":
                 "codigo_aluno": codigo_content_student,
                 "feedback_bruto": "",
                 "avaliacao_status": "",
-                "conceitos_limite": CONCEITOS_A_AVALIAR
+                "conceitos_limite": CONCEITOS_A_AVALIAR,
+                "modo_correcao": MODO_CORRECAO
             }
             final_state = graph.invoke(initial_state)
 
@@ -975,6 +1008,13 @@ if __name__ == "__main__":
                 feedback_json = json.loads(final_state["feedback_bruto"])
             except Exception:
                 feedback_json = {"avaliacao": "Erro", "justificativa": "Erro ao decodificar JSON.", "sugestao_correcao": ""}
+
+            # Honra o modo de correção: se scaffolding, removemos a sugestao de correção antes do relatório
+            try:
+                if MODO_CORRECAO == 'scaffolding' and isinstance(feedback_json, dict):
+                    feedback_json['sugestao_correcao'] = ""
+            except Exception:
+                pass
 
             # Salva feedback JSON
             save_feedback_json(aluno_nome, feedback_json)
