@@ -3,8 +3,8 @@ from datetime import datetime
 
 def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justificativa, dica_correcao, sugestao_correcao, pasta_relatorios=None):
     """
-    Gera um relatório HTML moderno e salva na pasta relatorios/ com data e hora no nome.
-    Retorna o caminho absoluto do arquivo gerado.
+    Gera um relatório HTML e salva na pasta relatorios/ com data e hora no nome.
+    Retorna o caminho do arquivo gerado.
     """
     # Define a cor do badge de status
     cor = "bg-gray-400"
@@ -16,19 +16,45 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
         cor = "bg-yellow-500"
 
     # Prepara a justificativa para exibição em HTML (substituindo quebras de linha)
-    justificativa_html = justificativa.replace('\n', '<br>').replace('\\n', '<br>')
+    def render_markdown_preserve_code(text: str) -> str:
+      if not text:
+        return ""
+      import re
+      code_blocks = []
+      def _code_repl(m):
+        code_blocks.append(m.group(0))
+        return f"@@CODE_BLOCK_{len(code_blocks)-1}@@"
+
+      text_wo_code = re.sub(r'```[\s\S]*?```', _code_repl, text)
+
+      # Tenta usar biblioteca de markdown se disponível
+      try:
+        import markdown as _md
+        rendered = _md.markdown(text_wo_code)
+      except Exception:
+        rendered = text_wo_code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        rendered = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", rendered)
+        rendered = re.sub(r"\*(.+?)\*", r"<em>\1</em>", rendered)
+        rendered = rendered.replace('\n', '<br>')
+
+      for i, cb in enumerate(code_blocks):
+        inner = re.sub(r'^```\w*\n|\n```$', '', cb)
+        inner_esc = inner.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        code_html = f"<pre class=\"!bg-transparent\"><code>{inner_esc}</code></pre>"
+        rendered = rendered.replace(f"@@CODE_BLOCK_{i}@@", code_html)
+      return rendered
+
+    justificativa_html = render_markdown_preserve_code(justificativa)
 
     # Prepara o enunciado para preservar quebras de linha e espaços, e garantir scroll e word-break
-    enunciado_escapado = enunciado.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\r', '')
-    enunciado_escapado_br = enunciado_escapado.replace("\n", "<br>")
-    enunciado_html = f'''<div style="max-height:220px;overflow:auto;white-space:pre-line;word-break:break-word;">{enunciado_escapado_br}</div>'''
+    enunciado_html_content = render_markdown_preserve_code(enunciado)
+    enunciado_html = f'''<div style="max-height:220px;overflow:auto;white-space:pre-line;word-break:break-word;">{enunciado_html_content}</div>'''
 
     # Função auxiliar para dividir blocos por arquivo
     def split_java_blocks(conteudo):
       import re
       # Remove tags markdown ```java e ```
       conteudo = re.sub(r'^```java\s*|```$', '', conteudo.strip(), flags=re.MULTILINE)
-      # Regex robusto: quebra de linha real após INÍCIO, ponto captura tudo até FIM
       padrao = re.compile(r"// --- ARQUIVO INÍCIO: (.*?) ---\n(.*?)// --- ARQUIVO FIM: \\1 ---", re.DOTALL)
       padrao2 = re.compile(r"// --- ARQUIVO INÍCIO: (.*?) ---\n(.*?)// --- ARQUIVO FIM: \1 ---", re.DOTALL)
       blocos = padrao2.findall(conteudo)
@@ -90,7 +116,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
     # Bloco da dica de correção (texto pedagógico, sem código)
     dica_correcao_html = ""
     if dica_correcao and dica_correcao.strip():
-        dica_esc = dica_correcao.replace('\n', '<br>').replace('\\n', '<br>')
+        dica_esc = render_markdown_preserve_code(dica_correcao)
         dica_correcao_html = f'''
     <details id="dica_correcao" open class="rounded-xl border border-amber-100 bg-amber-50">
       <summary class="cursor-pointer px-4 py-3 text-base font-bold text-amber-800 select-none flex items-center">Dica de Correção
@@ -212,16 +238,10 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
 </body>
 </html>'''
 
-    # Define a pasta de saída (sempre na raiz do projeto, pasta 'relatorios')
+    # Define a pasta de saída (sempre na raiz do projeto, pasta '04-relatorios')
     if not pasta_relatorios:
-      # Caminho absoluto para a pasta '04-relatorios' na raiz do projeto
-      # Procura a raiz do projeto subindo até encontrar requirements.txt
-      raiz_projeto = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-      while not os.path.exists(os.path.join(raiz_projeto, 'requirements.txt')):
-        nova_raiz = os.path.dirname(raiz_projeto)
-        if nova_raiz == raiz_projeto:
-          break
-        raiz_projeto = nova_raiz
+      base = os.path.dirname(__file__)
+      raiz_projeto = os.path.abspath(os.path.join(base, '..', '..'))
       pasta_relatorios = os.path.join(raiz_projeto, "04-relatorios")
 
     os.makedirs(pasta_relatorios, exist_ok=True)
