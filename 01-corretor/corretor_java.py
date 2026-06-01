@@ -1,30 +1,19 @@
 import os
 import time
-import random
 import json
-import re
-import zipfile
-import tempfile
-import webbrowser
-import subprocess
-import shutil
-from typing import TypedDict, Optional, List, Union
+from typing import TypedDict, Optional, List
 
 from views.ui import InterfaceCorretor
 
 from dotenv import load_dotenv
 from google import genai
-from google.genai.errors import APIError
 from langgraph.graph import StateGraph, END
 
-# Package-aware imports
 from controllers.prompts import PromptManager, _save_prompt_for_analysis
 from controllers.llm import generate_content_with_retry, MODEL_NAME, MAX_RETRIES
 from utils.io import (
-    _map_extracted_to_original,
     select_dir_or_zip,
     find_java_files,
-    count_java_in_dir_or_zip,
     read_file_content,
     save_feedback_json,
     resolve_target_dir,

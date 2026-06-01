@@ -62,7 +62,7 @@ class InterfaceCorretor:
         self.main_container.pack(fill="both", expand=True)
         self.card_enunc = CardSelecao(self.main_container, "1. Enunciado", "Instruções (Markdown ou Texto)", self.sel_enunciado)
         self.card_enunc.pack(fill="x", pady=6)
-        self.card_gaba = CardSelecao(self.main_container, "2. Gabarito", "Pasta com ficheiros .java (Opcional)", self.sel_gabarito)
+        self.card_gaba = CardSelecao(self.main_container, "2. Gabarito", "Pasta com arquivos .java (Opcional)", self.sel_gabarito)
         self.card_gaba.pack(fill="x", pady=6)
         self.card_aluno = CardSelecao(self.main_container, "3. Código do Aluno", "Pasta com o projeto .java do aluno", self.sel_aluno)
         self.card_aluno.pack(fill="x", pady=6)
