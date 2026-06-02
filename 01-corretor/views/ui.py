@@ -64,7 +64,7 @@ class InterfaceCorretor:
         self.card_enunc.pack(fill="x", pady=6)
         self.card_gaba = CardSelecao(self.main_container, "2. Gabarito", "Pasta com arquivos .java (Opcional)", self.sel_gabarito)
         self.card_gaba.pack(fill="x", pady=6)
-        self.card_aluno = CardSelecao(self.main_container, "3. Código do Aluno", "Pasta com o projeto .java do aluno", self.sel_aluno)
+        self.card_aluno = CardSelecao(self.main_container, "3. Código do Aluno", "Pasta com um ou mais projetos .java de alunos", self.sel_aluno)
         self.card_aluno.pack(fill="x", pady=6)
         self.card_concepts = CardSelecao(self.main_container, "4. Conceitos a Avaliar", "Escolher quais conceitos incluir na avaliação (Opcional)", self.sel_conceitos)
         self.card_concepts.pack(fill="x", pady=6)
@@ -132,7 +132,12 @@ class InterfaceCorretor:
             blocks = []
             for i, d in enumerate(subdirs, start=1):
                 blocks.append({'num': i, 'title': os.path.basename(d), 'text': os.path.basename(d) + '\n'})
-            sel = self._open_concepts_selector(blocks, title='Selecionar alunos', prompt_text='Marque os alunos que deseja processar:')
+            sel = self._open_concepts_selector(
+                blocks,
+                title='Selecionar alunos',
+                prompt_text='Marque os alunos que deseja processar:',
+                default_selected=True,
+            )
             if sel is None:
                 return
             selected_dirs = [subdirs[i] for i in sel]
@@ -189,7 +194,7 @@ class InterfaceCorretor:
         self.confirmado = True
         self.root.destroy()
 
-    def _open_concepts_selector(self, blocks: List[dict], title: str = 'Selecionar conceitos', prompt_text: str = 'Marque os conceitos que devem ser avaliados:') -> Optional[List[int]]:
+    def _open_concepts_selector(self, blocks: List[dict], title: str = 'Selecionar conceitos', prompt_text: str = 'Marque os conceitos que devem ser avaliados:', default_selected: bool = False) -> Optional[List[int]]:
         win = tk.Toplevel(self.root)
         win.title(title)
         win.geometry('480x520')
@@ -208,8 +213,18 @@ class InterfaceCorretor:
         scrollbar.pack(side='right', fill='y')
 
         vars = []
+
+        def set_all(value: int):
+            for var in vars:
+                var.set(value)
+
+        def toggle_all():
+            all_selected = all(var.get() for var in vars) if vars else False
+            set_all(0 if all_selected else 1)
+            btn_toggle.config(text='Desmarcar todos' if not all_selected else 'Marcar todos')
+
         for b in blocks:
-            var = tk.IntVar(value=0)
+            var = tk.IntVar(value=1 if default_selected else 0)
             chk = tk.Checkbutton(scroll_frame, text=f"{b['num']}. {b['title']}", variable=var, anchor='w', justify='left')
             chk.pack(anchor='w', fill='x')
             desc = re.sub(r'^\s*\d+\.\s*.*\n', '', b['text'], count=1)
@@ -218,6 +233,9 @@ class InterfaceCorretor:
             vars.append(var)
 
         result = {'sel': None}
+        btn_toggle = tk.Button(win, text='Desmarcar todos' if default_selected else 'Marcar todos', command=toggle_all)
+        btn_toggle.pack(anchor='w', padx=10, pady=(4, 0))
+
         def on_ok():
             sel = [i for i, v in enumerate(vars) if v.get()]
             result['sel'] = sel

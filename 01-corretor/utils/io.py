@@ -47,9 +47,11 @@ def select_dir_or_zip(pasta: str, prefixo_temp: str) -> Optional[str]:
             EXTRACTED_SUBMISSIONS[temp_dir] = pasta
         except Exception:
             pass
+        # Lista subpastas, ignorando nomes indesejados como '_'
         subdirs = [os.path.join(temp_dir, d) for d in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, d)) and d != '_']
         if subdirs:
             return subdirs[0]
+        # Se só existe a subpasta '_', ignora e retorna o temp_dir para busca na raiz
         return temp_dir
     return pasta
 

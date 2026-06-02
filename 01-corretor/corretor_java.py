@@ -1,7 +1,11 @@
 import os
 import time
 import json
+import webbrowser
 from typing import TypedDict, Optional, List
+
+import tkinter as tk
+from tkinter import messagebox
 
 from views.ui import InterfaceCorretor
 
@@ -19,11 +23,7 @@ from utils.io import (
     resolve_target_dir,
     copy_report_to_student,
 )
-from utils.formatters import (
-    remove_java_comments,
-    format_with_google_java_format,
-    read_and_concat_java_files,
-)
+from utils.formatters import read_and_concat_java_files
 from views.relatorio_html import gerar_relatorio_html
 
 # --- SCHEMA JSON ESTRITO ---
@@ -49,6 +49,43 @@ JSON_SCHEMA = {
     },
     "required": ["avaliacao", "justificativa", "dica_correcao", "sugestao_correcao"]
 }
+
+
+# Carrega as variáveis de ambiente do arquivo .env
+load_dotenv()
+
+
+def _show_fatal_error(title: str, message: str) -> None:
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(title, message, parent=root)
+        root.destroy()
+    except Exception:
+        print(f"{title}: {message}")
+
+# --- 1. CONFIGURAÇÃO E AUTENTICAÇÃO DO GEMINI ---
+API_KEY = os.getenv("GEMINI_API_KEY")
+
+try:
+    if not API_KEY:
+        raise ValueError("Chave API não encontrada.")
+    client = genai.Client(api_key=API_KEY)
+except ValueError:
+    _show_fatal_error(
+        "Chave da API ausente",
+        "A variável GEMINI_API_KEY não foi encontrada. Configure a chave no arquivo .env e tente novamente.",
+    )
+    raise SystemExit(1)
+except Exception as e:
+    _show_fatal_error(
+        "Erro ao inicializar o Gemini",
+        f"Não foi possível iniciar o cliente Gemini: {e}",
+    )
+    raise SystemExit(1)
+
+MODEL_NAME = "gemini-2.5-flash"
+MAX_RETRIES = 5
 
 
 # --- COMPONENTES DA INTERFACE ---
@@ -79,26 +116,6 @@ if ENUNCIADO_FILE_PATH:
     print(f"Gabarito(s) selecionado(s): {GABARITO_FILE_PATHS if GABARITO_FILE_PATHS else 'Nenhum'}")
     print(f"Arquivos de código selecionados: {CODIGOS_JAVA_PATHS}")
     print(f"Conceito limite informado: {CONCEITOS_A_AVALIAR if CONCEITOS_A_AVALIAR else 'Nenhum'}")
-
-# Carrega as variáveis de ambiente do arquivo .env
-load_dotenv()
-
-# --- 1. CONFIGURAÇÃO E AUTENTICAÇÃO DO GEMINI ---
-API_KEY = os.getenv("GEMINI_API_KEY")
-
-try:
-    if not API_KEY:
-        raise ValueError("Chave API não encontrada.")
-    client = genai.Client(api_key=API_KEY)
-except ValueError:
-    print("Erro: A chave API não foi carregada. Verifique o arquivo .env.")
-    exit()
-except Exception as e:
-    print(f"Erro ao inicializar o cliente Gemini: {e}")
-    exit()
-
-MODEL_NAME = "gemini-2.5-flash"
-MAX_RETRIES = 5
 
 
 # --- 2. DEFINIÇÃO DO ESTADO (STATE) DO LANGGRAPH ---
@@ -141,27 +158,9 @@ def correction_node(state: CorrectionState) -> dict:
     system_instruction = pm.system_instruction(state.get('modo_correcao'))
     conceitos_limite = state.get('conceitos_limite')
 
-    # Formata código e gabarito antes de preencher o template do prompt
-    try:
-        codigo_aluno_fmt = format_with_google_java_format(codigo_aluno) if codigo_aluno else ""
-    except Exception:
-        codigo_aluno_fmt = codigo_aluno or ""
-    try:
-        codigo_aluno_fmt = remove_java_comments(codigo_aluno_fmt) if codigo_aluno_fmt else codigo_aluno_fmt
-    except Exception:
-        pass
-
-    try:
-        if gabarito:
-            gabarito_fmt = format_with_google_java_format(gabarito)
-            try:
-                gabarito_fmt = remove_java_comments(gabarito_fmt)
-            except Exception:
-                pass
-        else:
-            gabarito_fmt = ""
-    except Exception:
-        gabarito_fmt = gabarito or ""
+    # O conteúdo já chega pré-processado por read_and_concat_java_files.
+    codigo_aluno_fmt = codigo_aluno or ""
+    gabarito_fmt = gabarito or ""
 
     user_prompt = pm.fill_user_template(enunciado, gabarito_fmt, codigo_aluno_fmt, conceitos_limite)
 
@@ -194,7 +193,7 @@ if __name__ == "__main__":
     enunciado_content = read_file_content(ENUNCIADO_FILE_PATH)
     if GABARITO_FILE_PATHS:
         print(f"[PASSO 3] Lendo gabarito dos arquivos: {GABARITO_FILE_PATHS}")
-        gabarito_content = read_and_concat_java_files(GABARITO_FILE_PATHS)
+        gabarito_content = read_and_concat_java_files(GABARITO_FILE_PATHS, source_group="gabarito")
     else:
         gabarito_content = None
     print(f"[PASSO 3] Lendo arquivos de código do aluno: {CODIGOS_JAVA_PATHS}")
@@ -203,7 +202,7 @@ if __name__ == "__main__":
         print("Modo lote detectado: cada item é uma pasta de aluno. O processamento por aluno será feito em sequência.")
         codigo_content = ""
     else:
-        codigo_content = read_and_concat_java_files(CODIGOS_JAVA_PATHS)
+        codigo_content = read_and_concat_java_files(CODIGOS_JAVA_PATHS, source_group="aluno")
     print("\n--- Conteúdo do Código Lido (Amostra) ---")
     print(codigo_content.strip()[:300] + '...')
     print("-" * 40)
@@ -321,7 +320,8 @@ if __name__ == "__main__":
         # Modo lote: iterar por cada pasta de aluno
         print(f"Entrando em modo lote: processando {len(CODIGOS_JAVA_PATHS)} alunos...")
         for sd in CODIGOS_JAVA_PATHS:
-            aluno_nome = os.path.basename(sd.rstrip(os.sep))
+            pasta_resolvida = resolve_target_dir(sd, sd)
+            aluno_nome = os.path.basename(os.path.abspath(pasta_resolvida)) if pasta_resolvida else os.path.basename(sd.rstrip(os.sep))
             print(f"\n--- Aluno: {aluno_nome} ---")
             # Extrai ZIPs se necessário
             try:
@@ -331,12 +331,16 @@ if __name__ == "__main__":
             except Exception:
                 pasta_final = sd
 
+            target_dir = resolve_target_dir(pasta_final, sd)
+            if target_dir:
+                aluno_nome = os.path.basename(os.path.abspath(target_dir))
+
             java_files = find_java_files(pasta_final)
             if not java_files:
                 print(f"Nenhum arquivo .java encontrado para {aluno_nome} em {pasta_final}. Pulando.")
                 continue
 
-            codigo_content_student = read_and_concat_java_files(java_files)
+            codigo_content_student = read_and_concat_java_files(java_files, source_group=aluno_nome)
 
             initial_state = {
                 "enunciado": enunciado_content,
@@ -384,7 +388,8 @@ if __name__ == "__main__":
                     avaliacao=avaliacao,
                     justificativa=justificativa,
                     dica_correcao=dica_correcao,
-                    sugestao_correcao=sugestao_correcao
+                    sugestao_correcao=sugestao_correcao,
+                    titulo=aluno_nome,
                 )
                 print(f"Relatório HTML gerado para {aluno_nome}: {relatorio_saida}")
                 # Copia o relatório gerado para a pasta do aluno processado (se habilitado)
@@ -392,7 +397,6 @@ if __name__ == "__main__":
                     if not should_save_reports():
                         print('Opção de salvar relatório na pasta do código desativada; não copiando relatório para este aluno.')
                     else:
-                        target_dir = resolve_target_dir(pasta_final, sd)
                         copy_report_to_student(relatorio_saida, target_dir)
                 except Exception as e:
                     print('Falha ao copiar relatório para a pasta do aluno:', e)
