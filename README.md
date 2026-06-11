@@ -5,6 +5,8 @@
 
 ## Requisitos
 - Python 3.9+
+- Java 11 ou superior para o `google-java-format` usado no pré-processamento dos arquivos Java.
+- Ambiente validado com Java 24.0.2 e `google-java-format` 1.15.0.
 - Crie e ative um ambiente virtual e instale dependências: `pip install -r requirements.txt`
 - Configure um arquivo `.env` na raiz com `GEMINI_API_KEY=suachave`.
 

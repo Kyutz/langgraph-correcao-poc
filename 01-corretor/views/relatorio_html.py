@@ -1,10 +1,22 @@
 import os
 from datetime import datetime
+from typing import Optional
 
-def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justificativa, dica_correcao, sugestao_correcao, pasta_relatorios=None):
+
+def gerar_relatorio_html(
+  enunciado,
+  gabarito,
+  codigo_aluno,
+  avaliacao,
+  justificativa,
+  dica_correcao,
+  sugestao_correcao,
+  pasta_relatorios=None,
+  titulo: Optional[str] = None,
+):
     """
-    Gera um relatório HTML moderno e salva na pasta relatorios/ com data e hora no nome.
-    Retorna o caminho absoluto do arquivo gerado.
+    Gera um relatório HTML e salva na pasta relatorios/ com data e hora no nome.
+    Retorna o caminho do arquivo gerado.
     """
     # Define a cor do badge de status
     cor = "bg-gray-400"
@@ -15,20 +27,53 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
     elif avaliacao == "Parcialmente Certo":
         cor = "bg-yellow-500"
 
-    # Prepara a justificativa para exibição em HTML (substituindo quebras de linha)
-    justificativa_html = justificativa.replace('\n', '<br>').replace('\\n', '<br>')
+    title_text = f"Relatório de Correção - {titulo}" if titulo else "Relatório de Correção - LangGraph"
 
-    # Prepara o enunciado para preservar quebras de linha e espaços, e garantir scroll e word-break
-    enunciado_escapado = enunciado.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\r', '')
-    enunciado_escapado_br = enunciado_escapado.replace("\n", "<br>")
-    enunciado_html = f'''<div style="max-height:220px;overflow:auto;white-space:pre-line;word-break:break-word;">{enunciado_escapado_br}</div>'''
+    # Prepara a justificativa para exibição em HTML (substituindo quebras de linha)
+    def render_markdown_preserve_code(text: str) -> str:
+      if not text:
+        return ""
+      import re
+      code_blocks = []
+      def _code_repl(m):
+        code_blocks.append(m.group(0))
+        return f"@@CODE_BLOCK_{len(code_blocks)-1}@@"
+
+      text_wo_code = re.sub(r'```[\s\S]*?```', _code_repl, text)
+
+      # Tenta usar biblioteca de markdown se disponível
+      try:
+        import markdown as _md
+        rendered = _md.markdown(text_wo_code)
+      except Exception:
+        rendered = text_wo_code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        rendered = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", rendered)
+        rendered = re.sub(r"\*(.+?)\*", r"<em>\1</em>", rendered)
+        rendered = rendered.replace('\n', '<br>')
+
+      for i, cb in enumerate(code_blocks):
+        inner = re.sub(r'^```\w*\n|\n```$', '', cb)
+        inner_esc = inner.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        code_html = f"<pre class=\"!bg-transparent\"><code>{inner_esc}</code></pre>"
+        rendered = rendered.replace(f"@@CODE_BLOCK_{i}@@", code_html)
+      return rendered
+
+    justificativa_html = render_markdown_preserve_code(justificativa)
+
+    # Mostra o enunciado como texto bruto do .md, sem reescrever listas ou markdown
+    enunciado_html_content = (
+      enunciado.replace('&', '&amp;')
+      .replace('<', '&lt;')
+      .replace('>', '&gt;')
+      .replace('\r', '')
+    )
+    enunciado_html = f'''<div style="max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-style:normal;">{enunciado_html_content}</div>'''
 
     # Função auxiliar para dividir blocos por arquivo
     def split_java_blocks(conteudo):
       import re
       # Remove tags markdown ```java e ```
       conteudo = re.sub(r'^```java\s*|```$', '', conteudo.strip(), flags=re.MULTILINE)
-      # Regex robusto: quebra de linha real após INÍCIO, ponto captura tudo até FIM
       padrao = re.compile(r"// --- ARQUIVO INÍCIO: (.*?) ---\n(.*?)// --- ARQUIVO FIM: \\1 ---", re.DOTALL)
       padrao2 = re.compile(r"// --- ARQUIVO INÍCIO: (.*?) ---\n(.*?)// --- ARQUIVO FIM: \1 ---", re.DOTALL)
       blocos = padrao2.findall(conteudo)
@@ -50,7 +95,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
             codigo_escapado = (codigo.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\r', ''))
             blocos_html += f'''<div class="mb-4"><div class="flex items-center justify-between mb-1">{nome_html}<button class="px-2 py-1 text-xs rounded bg-slate-200 hover:bg-slate-300 font-mono copy-btn" data-target="{code_id}">Copiar código</button></div><div class="scroll-block rounded-xl"><pre class="!bg-transparent"><code class="language-java" id="{code_id}" style="white-space: pre !important;">{codigo_escapado}</code></pre></div></div>'''
         gabarito_html = f'''
-        <details id="gabarito" open class="rounded-xl border border-slate-200 bg-slate-50 mb-6">
+          <details id="gabarito" class="rounded-xl border border-slate-200 bg-slate-50 mb-6">
           <summary class="cursor-pointer px-4 py-3 text-base font-bold text-slate-700 select-none flex items-center">Gabarito do Professor</summary>
           <div class="m-4">{blocos_html}</div>
         </details>'''
@@ -66,7 +111,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
             codigo_escapado = (codigo.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\r', ''))
             blocos_html += f'''<div class="mb-4"><div class="flex items-center justify-between mb-1">{nome_html}<button class="px-2 py-1 text-xs rounded bg-green-200 hover:bg-green-300 font-mono copy-btn" data-target="{code_id}">Copiar código</button></div><div class="scroll-block-sugestao rounded-xl"><pre class="!bg-transparent"><code class="language-java" id="{code_id}" style="white-space: pre !important;">{codigo_escapado}</code></pre></div></div>'''
         sugestao_html = f'''
-        <details id="sugestao" open class="rounded-xl border border-green-100 bg-green-50">
+          <details id="sugestao" class="rounded-xl border border-green-100 bg-green-50">
           <summary class="cursor-pointer px-4 py-3 text-base font-bold text-green-800 select-none flex items-center">Sugestão de Correção</summary>
           <div class="m-4">{blocos_html}</div>
         </details>'''
@@ -82,7 +127,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
         codigo_escapado = (codigo.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\r', ''))
         blocos_html += f'''<div class="mb-4"><div class="flex items-center justify-between mb-1">{nome_html}<button class="px-2 py-1 text-xs rounded bg-slate-200 hover:bg-slate-300 font-mono copy-btn" data-target="{code_id}">Copiar código</button></div><div class="scroll-block rounded-xl"><pre class="!bg-transparent"><code class="language-java" id="{code_id}" style="white-space: pre !important;">{codigo_escapado}</code></pre></div></div>'''
     aluno_html = f'''
-    <details id="aluno" open class="rounded-xl border border-slate-200 bg-slate-50">
+      <details id="aluno" class="rounded-xl border border-slate-200 bg-slate-50">
       <summary class="cursor-pointer px-4 py-3 text-base font-bold text-slate-700 select-none flex items-center">Código do Aluno</summary>
       <div class="m-4">{blocos_html}</div>
     </details>'''
@@ -90,7 +135,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
     # Bloco da dica de correção (texto pedagógico, sem código)
     dica_correcao_html = ""
     if dica_correcao and dica_correcao.strip():
-        dica_esc = dica_correcao.replace('\n', '<br>').replace('\\n', '<br>')
+        dica_esc = render_markdown_preserve_code(dica_correcao)
         dica_correcao_html = f'''
     <details id="dica_correcao" open class="rounded-xl border border-amber-100 bg-amber-50">
       <summary class="cursor-pointer px-4 py-3 text-base font-bold text-amber-800 select-none flex items-center">Dica de Correção
@@ -104,7 +149,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Relatório de Correção - LangGraph</title>
+  <title>{title_text}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -138,7 +183,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
   </nav>
   <div class="main-content max-w-4xl mx-auto p-6 mt-8 bg-white rounded-3xl shadow-xl border border-gray-100">
     <div class="sticky-header flex justify-between items-center mb-8 pb-4 pt-2 px-2">
-        <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">Relatório de Correção</h1>
+        <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">{title_text}</h1>
         <span class="px-4 py-1.5 rounded-full text-white text-sm font-bold shadow-sm {cor}">
             {avaliacao.upper()}
         </span>
@@ -149,10 +194,6 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
           <div class="bg-slate-50 p-4 rounded-lg text-slate-700 text-sm border-l-4 border-slate-300 italic">{enunciado_html}</div>
         </div>
 
-        {gabarito_html}
-
-        {aluno_html}
-
         <details id="justificativa" open class="rounded-xl border border-blue-100 bg-blue-50">
           <summary class="cursor-pointer px-4 py-3 text-base font-bold text-blue-800 select-none flex items-center">
             <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"></path></svg>
@@ -160,11 +201,15 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
             <button class="ml-4 px-2 py-1 text-xs rounded bg-blue-200 hover:bg-blue-300 font-mono copy-btn" data-target="justificativa-text">Copiar feedback</button>
           </summary>
           <div class="text-blue-900 leading-relaxed px-4 pb-4" id="justificativa-text">{justificativa_html}</div>
-          </details>
+        </details>
 
-          {dica_correcao_html}
+        {dica_correcao_html}
 
-          {sugestao_html}
+        {aluno_html}
+
+        {gabarito_html}
+
+        {sugestao_html}
     </div>
     <footer class="text-center text-xs text-gray-400 mt-12 pt-6 border-t">
         Gerado automaticamente por LangGraph Corretor • {datetime.now().strftime('%d/%m/%Y %H:%M')}
@@ -175,7 +220,7 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
   <script>
     // Sidebar highlight
     const links = document.querySelectorAll('.sidebar-link');
-    const sections = ['enunciado','gabarito','aluno','justificativa','dica_correcao','sugestao'].map(id => document.getElementById(id));
+    const sections = ['enunciado','justificativa','dica_correcao','aluno','gabarito','sugestao'].map(id => document.getElementById(id));
     function highlightSidebar(idx) {{
       links.forEach(function(l, i) {{ l.classList.toggle('active', i === idx); }});
     }}
@@ -212,16 +257,10 @@ def gerar_relatorio_html(enunciado, gabarito, codigo_aluno, avaliacao, justifica
 </body>
 </html>'''
 
-    # Define a pasta de saída (sempre na raiz do projeto, pasta 'relatorios')
+    # Define a pasta de saída (sempre na raiz do projeto, pasta '04-relatorios')
     if not pasta_relatorios:
-      # Caminho absoluto para a pasta '04-relatorios' na raiz do projeto
-      # Procura a raiz do projeto subindo até encontrar requirements.txt
-      raiz_projeto = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-      while not os.path.exists(os.path.join(raiz_projeto, 'requirements.txt')):
-        nova_raiz = os.path.dirname(raiz_projeto)
-        if nova_raiz == raiz_projeto:
-          break
-        raiz_projeto = nova_raiz
+      base = os.path.dirname(__file__)
+      raiz_projeto = os.path.abspath(os.path.join(base, '..', '..'))
       pasta_relatorios = os.path.join(raiz_projeto, "04-relatorios")
 
     os.makedirs(pasta_relatorios, exist_ok=True)
